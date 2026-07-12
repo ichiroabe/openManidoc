@@ -141,6 +141,13 @@ flutter build macos --release
 ```
 
 - 出力先: `build/macos/Build/Products/Release/open_manidoc.app`
+- 無料・未署名で配布する場合の起動方法:
+  Appleの有料デベロッパー登録を行わずに配布（またはzip等で共有）した場合、受け取った側のMacで起動時に「開発元が未確認のため開けません」というセキュリティ警告が表示されます。これを回避するには、ユーザーに以下のいずれかの手順を行ってもらってください。
+  - 右クリックから起動する: アプリを右クリック（または二本指タップ）して「開く」を選択し、表示される確認ダイアログで「開く」をクリックする（初回のみ）。
+  - コマンドでセキュリティ解除する: ターミナルで以下のコマンドを実行して隔離属性を解除する。
+    ```bash
+    xattr -cr open_manidoc.app
+    ```
 - 配布(公証)する場合は Apple Developer 証明書で署名・notarize が必要です:
   ```bash
   codesign --deep --force --options runtime \
