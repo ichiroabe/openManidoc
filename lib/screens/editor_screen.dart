@@ -16,7 +16,7 @@ import '../models/manidoc_project.dart';
 import '../services/html_exporter.dart';
 import '../services/html_import.dart';
 import '../services/markdown_io.dart';
-import '../widgets/markdown_toolbar.dart';
+import '../widgets/wysiwyg_editor.dart';
 import '../widgets/mindmap_view.dart';
 
 /// 編集画面。本家ProjectView準拠:
@@ -63,9 +63,12 @@ class _EditorScreenState extends State<EditorScreen> {
   List<ManidocNode> _previewOrder = []; // プレビュー表示順(深さ優先)
 
   final _titleController = TextEditingController();
-  final _articleController = TextEditingController();
-  final _commentController = TextEditingController();
   final _aiPromptController = TextEditingController();
+
+  // WYSIWYGエディタは node.id + version でキーする。
+  // 外部(AI/編集拡大/置換/再読込)から本文を書き換えたらversionを上げて作り直す。
+  int _articleVer = 0;
+  int _commentVer = 0;
 
   ManidocProject get project => widget.project;
   AppState get app => widget.appState;
@@ -94,8 +97,6 @@ class _EditorScreenState extends State<EditorScreen> {
   @override
   void dispose() {
     _titleController.dispose();
-    _articleController.dispose();
-    _commentController.dispose();
     _aiPromptController.dispose();
     _searchController.dispose();
     _replaceController.dispose();
@@ -174,9 +175,8 @@ class _EditorScreenState extends State<EditorScreen> {
       _selected = node;
       project.lastSelectedNodeId = node.id;
       _titleController.text = node.title;
-      _articleController.text = node.article;
-      _commentController.text = node.comment;
       _aiPromptController.text = node.aiPrompt;
+      // WYSIWYGエディタは key(node.id)で自動的に作り直される
     });
     _syncPreviewToSelection();
   }
@@ -350,8 +350,8 @@ class _EditorScreenState extends State<EditorScreen> {
       _dirty = true;
       if (identical(node, _selected)) {
         _titleController.text = node.title;
-        _articleController.text = node.article;
-        _commentController.text = node.comment;
+        _articleVer++;
+        _commentVer++;
       }
     });
     _runSearch(query);
@@ -383,8 +383,8 @@ class _EditorScreenState extends State<EditorScreen> {
       final sel = _selected;
       if (sel != null) {
         _titleController.text = sel.title;
-        _articleController.text = sel.article;
-        _commentController.text = sel.comment;
+        _articleVer++;
+        _commentVer++;
       }
     });
     _runSearch(query);
@@ -670,10 +670,10 @@ class _EditorScreenState extends State<EditorScreen> {
     setState(() {
       if (forComment) {
         sel.comment = result;
-        _commentController.text = result;
+        _commentVer++;
       } else {
         sel.article = result;
-        _articleController.text = result;
+        _articleVer++;
       }
       _dirty = true;
     });
@@ -690,10 +690,10 @@ class _EditorScreenState extends State<EditorScreen> {
     setState(() {
       if (forComment) {
         sel.comment = result;
-        _commentController.text = result;
+        _commentVer++;
       } else {
         sel.article = result;
-        _articleController.text = result;
+        _articleVer++;
       }
       _dirty = true;
     });
@@ -1228,49 +1228,17 @@ class _EditorScreenState extends State<EditorScreen> {
                     visualDensity: VisualDensity.compact),
                 child: Text(L.t('expanded_edit')),
               ),
-              const Spacer(),
-              Tooltip(
-                message: L.t('bigger'),
-                child: TextButton(
-                    onPressed: () => _changeFontSize(1),
-                    child: const Text('A+')),
-              ),
-              Tooltip(
-                message: L.t('smaller'),
-                child: TextButton(
-                    onPressed: () => _changeFontSize(-1),
-                    child: const Text('A-')),
-              ),
-              TextButton(
-                  onPressed: () => _changeFontSize(0),
-                  child: Text(L.t('reset'))),
             ],
           ),
           const SizedBox(height: 6),
-          MarkdownToolbar(
-            controller: _articleController,
-            onChanged: () => setState(() {
-              sel.article = _articleController.text;
-              _dirty = true;
-            }),
-            onPickImage: _pickImageToProject,
-          ),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _articleController,
-            maxLines: 10,
-            minLines: 6,
-            style: TextStyle(
-                fontFamily: 'monospace',
-                fontSize: app.settings.articleFontSize),
-            decoration: InputDecoration(
-              hintText: L.t('article_hint'),
-              border: const OutlineInputBorder(),
-            ),
-            onChanged: (v) => setState(() {
-              sel.article = v;
-              _dirty = true;
-            }),
+          WysiwygEditor(
+            key: ValueKey('${sel.id}-article-$_articleVer'),
+            initialMarkdown: sel.article,
+            height: 320,
+            onChanged: (md) {
+              sel.article = md;
+              if (!_dirty) setState(() => _dirty = true);
+            },
           ),
           const SizedBox(height: 20),
           Row(
@@ -1384,19 +1352,14 @@ class _EditorScreenState extends State<EditorScreen> {
             ],
           ),
           const SizedBox(height: 6),
-          TextField(
-            controller: _commentController,
-            maxLines: 4,
-            minLines: 3,
-            style: TextStyle(fontSize: app.settings.articleFontSize),
-            decoration: InputDecoration(
-              hintText: L.t('comment_hint'),
-              border: const OutlineInputBorder(),
-            ),
-            onChanged: (v) => setState(() {
-              sel.comment = v;
-              _dirty = true;
-            }),
+          WysiwygEditor(
+            key: ValueKey('${sel.id}-comment-$_commentVer'),
+            initialMarkdown: sel.comment,
+            height: 180,
+            onChanged: (md) {
+              sel.comment = md;
+              if (!_dirty) setState(() => _dirty = true);
+            },
           ),
         ],
       ),
@@ -1407,15 +1370,6 @@ class _EditorScreenState extends State<EditorScreen> {
       .textTheme
       .labelLarge
       ?.copyWith(fontWeight: FontWeight.bold);
-
-  void _changeFontSize(int delta) {
-    setState(() {
-      app.settings.articleFontSize = delta == 0
-          ? 14.0
-          : (app.settings.articleFontSize + delta * 1.5).clamp(10.0, 28.0);
-    });
-    app.settings.save();
-  }
 
   Widget _buildPreviewPanel(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
