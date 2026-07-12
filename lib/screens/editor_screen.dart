@@ -9,6 +9,7 @@ import '../app_state.dart';
 import '../dialogs/ai_assistant_dialog.dart';
 import '../dialogs/expanded_edit_dialog.dart';
 import '../dialogs/image_editor_dialog.dart';
+import '../dialogs/node_picker_dialog.dart';
 import '../dialogs/theme_generator_dialog.dart';
 import '../l10n/strings.dart';
 import '../models/manidoc_node.dart';
@@ -121,6 +122,32 @@ class _EditorScreenState extends State<EditorScreen> {
       Process.run('open', [path]);
     } else {
       Process.run('xdg-open', [path]);
+    }
+  }
+
+  /// `[[` から呼ばれるノード選択。選ばれた id/title を返す。
+  Future<({String id, String title})?> _pickNodeLink() =>
+      showNodePickerDialog(context, project, exclude: _selected);
+
+  /// ノードリンク(#node:id)や外部URLのタップ処理
+  void _onLinkTap(String url) {
+    if (url.startsWith('#node:')) {
+      final id = url.substring('#node:'.length);
+      final target = _findById(project.rootNodes, id);
+      if (target != null) {
+        _expandAncestors(target);
+        _select(target);
+      } else {
+        _snack(L.isJa ? 'リンク先のノードが見つかりません' : 'Linked node not found');
+      }
+    } else if (url.startsWith('http')) {
+      if (Platform.isWindows) {
+        Process.run('explorer', [url]);
+      } else if (Platform.isMacOS) {
+        Process.run('open', [url]);
+      } else {
+        Process.run('xdg-open', [url]);
+      }
     }
   }
 
@@ -1228,6 +1255,12 @@ class _EditorScreenState extends State<EditorScreen> {
                     visualDensity: VisualDensity.compact),
                 child: Text(L.t('expanded_edit')),
               ),
+              const Spacer(),
+              Tooltip(
+                message: L.t('node_link_hint'),
+                child: Text('[[ ${L.isJa ? 'ノードリンク' : 'node link'}',
+                    style: Theme.of(context).textTheme.bodySmall),
+              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -1235,6 +1268,7 @@ class _EditorScreenState extends State<EditorScreen> {
             key: ValueKey('${sel.id}-article-$_articleVer'),
             initialMarkdown: sel.article,
             height: 320,
+            onPickNodeLink: _pickNodeLink,
             onChanged: (md) {
               sel.article = md;
               if (!_dirty) setState(() => _dirty = true);
@@ -1356,6 +1390,7 @@ class _EditorScreenState extends State<EditorScreen> {
             key: ValueKey('${sel.id}-comment-$_commentVer'),
             initialMarkdown: sel.comment,
             height: 180,
+            onPickNodeLink: _pickNodeLink,
             onChanged: (md) {
               sel.comment = md;
               if (!_dirty) setState(() => _dirty = true);
@@ -1373,8 +1408,18 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Widget _buildPreviewPanel(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // リンク(#node:id / 外部URL)をタップで処理できるよう LinkConfig を差し込む
     final config =
-        isDark ? MarkdownConfig.darkConfig : MarkdownConfig.defaultConfig;
+        (isDark ? MarkdownConfig.darkConfig : MarkdownConfig.defaultConfig)
+            .copy(configs: [
+      LinkConfig(
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.primary,
+          decoration: TextDecoration.underline,
+        ),
+        onTap: _onLinkTap,
+      ),
+    ]);
 
     // 深さ優先で表示順の平坦リストを作る(スクロール同期のインデックスに使う)
     final flat = <({ManidocNode node, int depth, String number})>[];

@@ -28,11 +28,16 @@ class WysiwygEditor extends StatefulWidget {
   /// エディタの固定高さ(内部でスクロール)
   final double height;
 
+  /// `[[` 入力時に呼ばれ、選ばれたノードの id/title を返す(キャンセルはnull)。
+  /// 返ってきたら `[title](#node:id)` リンクとして挿入する。
+  final Future<({String id, String title})?> Function()? onPickNodeLink;
+
   const WysiwygEditor({
     super.key,
     required this.initialMarkdown,
     required this.onChanged,
     this.height = 260,
+    this.onPickNodeLink,
   });
 
   @override
@@ -62,6 +67,35 @@ class _WysiwygEditorState extends State<WysiwygEditor> {
       widget.onChanged(documentToMarkdown(_editorState.document));
     });
   }
+
+  /// `[[` を検出してノードリンクを挿入する文字ショートカット
+  late final CharacterShortcutEvent _nodeLinkShortcut = CharacterShortcutEvent(
+    key: 'node link',
+    character: '[',
+    handler: (editorState) async {
+      final onPick = widget.onPickNodeLink;
+      if (onPick == null) return false;
+      final sel = editorState.selection;
+      if (sel == null || !sel.isCollapsed) return false;
+      final node = editorState.getNodeAtPath(sel.end.path);
+      final delta = node?.delta;
+      if (node == null || delta == null) return false;
+      final plain = delta.toPlainText();
+      final offset = sel.end.offset;
+      // 直前の文字が '[' のとき(= '[[')だけ発火。それ以外は通常入力。
+      if (offset <= 0 || offset > plain.length || plain[offset - 1] != '[') {
+        return false;
+      }
+      final picked = await onPick();
+      if (picked == null || !mounted) return false; // キャンセル→'['を通常入力
+      final tr = editorState.transaction;
+      // 直前の '[' をリンク付きタイトルに置換する
+      tr.replaceText(node, offset - 1, 1, picked.title,
+          attributes: {AppFlowyRichTextKeys.href: '#node:${picked.id}'});
+      await editorState.apply(tr);
+      return true; // 2つ目の '[' は消費
+    },
+  );
 
   @override
   void dispose() {
@@ -103,6 +137,10 @@ class _WysiwygEditorState extends State<WysiwygEditor> {
           editorScrollController: _scrollController,
           editable: true,
           editorStyle: style,
+          characterShortcutEvents: [
+            _nodeLinkShortcut,
+            ...standardCharacterShortcutEvents,
+          ],
         ),
       ),
     );
