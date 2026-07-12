@@ -47,6 +47,14 @@ class _EditorScreenState extends State<EditorScreen> {
   double _treeWidth = 300;
   double _previewWidth = 420;
   double _zoom = 0.75;
+
+  // 編集領域の高さ(本家の ▼/■/▲ とドラッグで調整。セッション内のみ保持)
+  static const _defaultArticleHeight = 320.0;
+  static const _defaultImageHeight = 300.0;
+  static const _defaultCommentHeight = 180.0;
+  double _articleHeight = _defaultArticleHeight;
+  double _imageHeight = _defaultImageHeight;
+  double _commentHeight = _defaultCommentHeight;
   bool _generatingImage = false;
   List<String> _themeFiles = [];
 
@@ -814,6 +822,62 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
+  /// 編集領域(記事/画像/コメント)の高さを上下ドラッグで変えるハンドル
+  Widget _buildHSplitter(void Function(double dy) onDrag) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeRow,
+      child: GestureDetector(
+        onVerticalDragUpdate: (details) => onDrag(details.delta.dy),
+        child: SizedBox(
+          height: 10,
+          child: Center(
+            child: Container(
+              width: 56,
+              height: 3,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.outlineVariant,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------- 編集領域サイズ(本家 ▼/■/▲ 準拠) ----------
+
+  void _expandArticleArea() => setState(() {
+        _articleHeight = 560;
+        _imageHeight = 160;
+      });
+
+  void _expandCommentArea() => setState(() {
+        _commentHeight = 420;
+        _imageHeight = 160;
+      });
+
+  void _resetAreas() => setState(() {
+        _articleHeight = _defaultArticleHeight;
+        _imageHeight = _defaultImageHeight;
+        _commentHeight = _defaultCommentHeight;
+      });
+
+  Widget _areaButton(String label, String tooltip, VoidCallback onPressed) {
+    return Tooltip(
+      message: tooltip,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          minimumSize: const Size(32, 28),
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+        ),
+        child: Text(label, style: const TextStyle(fontSize: 11)),
+      ),
+    );
+  }
+
   Widget _buildToolbar(BuildContext context) {
     final provider = app.settings.effectiveAIProvider;
     return Container(
@@ -1271,14 +1335,16 @@ class _EditorScreenState extends State<EditorScreen> {
           WysiwygEditor(
             key: ValueKey('${sel.id}-article-$_articleVer'),
             initialMarkdown: sel.article,
-            height: 320,
+            height: _articleHeight,
             onPickNodeLink: _pickNodeLink,
             onChanged: (md) {
               sel.article = md;
               if (!_dirty) setState(() => _dirty = true);
             },
           ),
-          const SizedBox(height: 20),
+          _buildHSplitter((dy) => setState(() =>
+              _articleHeight = (_articleHeight + dy).clamp(140.0, 800.0))),
+          const SizedBox(height: 10),
           Row(
             children: [
               Text(L.t('ai_image_prompt'), style: _labelStyle(context)),
@@ -1348,13 +1414,19 @@ class _EditorScreenState extends State<EditorScreen> {
                   child: Text(sel.imagePath,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall),
-                ),
+                )
+              else
+                const Spacer(),
+              // 本家準拠: ▼記事エリアを拡大 / ■元に戻す
+              _areaButton('▼', L.t('expand_article_area'), _expandArticleArea),
+              const SizedBox(width: 4),
+              _areaButton('■', L.t('reset_areas'), _resetAreas),
             ],
           ),
           const SizedBox(height: 6),
           Container(
             width: double.infinity,
-            constraints: const BoxConstraints(minHeight: 120, maxHeight: 320),
+            height: sel.imagePath.isEmpty ? 100 : _imageHeight,
             decoration: BoxDecoration(
               border: Border.all(
                   color: Theme.of(context).colorScheme.outlineVariant),
@@ -1366,10 +1438,25 @@ class _EditorScreenState extends State<EditorScreen> {
                         style: Theme.of(context).textTheme.bodySmall))
                 : Padding(
                     padding: const EdgeInsets.all(8),
-                    child: _previewImage(sel),
+                    child: FittedBox(
+                      fit: BoxFit.contain,
+                      child: _previewImage(sel),
+                    ),
                   ),
           ),
-          const SizedBox(height: 20),
+          if (sel.imagePath.isNotEmpty)
+            _buildHSplitter((dy) => setState(() =>
+                _imageHeight = (_imageHeight + dy).clamp(100.0, 700.0))),
+          Row(
+            children: [
+              const Spacer(),
+              // 本家準拠: ▲コメントエリアを拡大 / ■元に戻す
+              _areaButton('▲', L.t('expand_comment_area'), _expandCommentArea),
+              const SizedBox(width: 4),
+              _areaButton('■', L.t('reset_areas'), _resetAreas),
+            ],
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               Text(L.t('comment_label'), style: _labelStyle(context)),
@@ -1393,13 +1480,15 @@ class _EditorScreenState extends State<EditorScreen> {
           WysiwygEditor(
             key: ValueKey('${sel.id}-comment-$_commentVer'),
             initialMarkdown: sel.comment,
-            height: 180,
+            height: _commentHeight,
             onPickNodeLink: _pickNodeLink,
             onChanged: (md) {
               sel.comment = md;
               if (!_dirty) setState(() => _dirty = true);
             },
           ),
+          _buildHSplitter((dy) => setState(() =>
+              _commentHeight = (_commentHeight + dy).clamp(100.0, 600.0))),
         ],
       ),
     );
