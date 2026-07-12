@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:markdown_widget/markdown_widget.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../app_state.dart';
 import '../dialogs/ai_assistant_dialog.dart';
@@ -57,8 +58,9 @@ class _EditorScreenState extends State<EditorScreen> {
   ManidocNode? _dropTarget;
   String _dropZone = 'child'; // 'before' | 'child' | 'after'
 
-  // プレビュー同期用: ノードidごとのキー
-  final Map<String, GlobalKey> _previewKeys = {};
+  // プレビュー同期用: 任意インデックスへスクロールできるコントローラ
+  final ItemScrollController _previewScroll = ItemScrollController();
+  List<ManidocNode> _previewOrder = []; // プレビュー表示順(深さ優先)
 
   final _titleController = TextEditingController();
   final _articleController = TextEditingController();
@@ -182,15 +184,17 @@ class _EditorScreenState extends State<EditorScreen> {
   void _syncPreviewToSelection() {
     final node = _selected;
     if (node == null) return;
+    // rebuild後に実行して、最新の表示順(_previewOrder)でインデックスを引く。
+    // ScrollablePositionedListは画面外の項目へも確実にスクロールできる。
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final key = _previewKeys[node.id];
-      final ctx = key?.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(ctx,
-            duration: const Duration(milliseconds: 300),
-            alignment: 0.1,
-            curve: Curves.easeInOut);
-      }
+      final idx = _previewOrder.indexWhere((n) => identical(n, node));
+      if (idx < 0 || !_previewScroll.isAttached) return;
+      _previewScroll.scrollTo(
+        index: idx,
+        alignment: 0.08,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
     });
   }
 
@@ -1417,71 +1421,22 @@ class _EditorScreenState extends State<EditorScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final config =
         isDark ? MarkdownConfig.darkConfig : MarkdownConfig.defaultConfig;
-    final sections = <Widget>[];
-    _previewKeys.clear();
 
+    // 深さ優先で表示順の平坦リストを作る(スクロール同期のインデックスに使う)
+    final flat = <({ManidocNode node, int depth, String number})>[];
     void walk(List<ManidocNode> nodes, int depth, String numberPrefix) {
       var index = 1;
       for (final node in nodes) {
         final number =
             numberPrefix.isEmpty ? '$index' : '$numberPrefix.$index';
-        final selected = identical(node, _selected);
-        final key = GlobalKey();
-        _previewKeys[node.id] = key;
-        sections.add(Container(
-          key: key,
-          margin: const EdgeInsets.only(bottom: 20),
-          padding: const EdgeInsets.all(8),
-          decoration: selected
-              ? BoxDecoration(
-                  border: Border.all(
-                      color: Theme.of(context).colorScheme.primary, width: 2),
-                  borderRadius: BorderRadius.circular(8),
-                )
-              : null,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                app.settings.exportHeadingNumbering
-                    ? '$number. ${node.title}'
-                    : node.title,
-                style: TextStyle(
-                  fontSize: (22.0 - depth * 2).clamp(15.0, 22.0),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (node.article.trim().isNotEmpty)
-                MarkdownBlock(data: node.article, config: config),
-              if (node.imagePath.trim().isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: _previewImage(node),
-                ),
-              if (node.comment.trim().isNotEmpty)
-                Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.only(top: 8),
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? const Color(0xFF2A2618)
-                        : const Color(0xFFFFF8E1),
-                    border: const Border(
-                        left: BorderSide(color: Color(0xFFFFCA28), width: 4)),
-                  ),
-                  child: MarkdownBlock(data: node.comment, config: config),
-                ),
-            ],
-          ),
-        ));
+        flat.add((node: node, depth: depth, number: number));
         walk(node.children, depth + 1, number);
         index++;
       }
     }
 
     walk(project.rootNodes, 0, '');
+    _previewOrder = [for (final e in flat) e.node];
 
     return Container(
       color: Theme.of(context).colorScheme.surfaceContainerLowest,
@@ -1514,15 +1469,73 @@ class _EditorScreenState extends State<EditorScreen> {
             ),
           ),
           Expanded(
-            child: MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(_zoom)),
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: sections,
-              ),
+            child: flat.isEmpty
+                ? const SizedBox.shrink()
+                : MediaQuery(
+                    data: MediaQuery.of(context)
+                        .copyWith(textScaler: TextScaler.linear(_zoom)),
+                    child: ScrollablePositionedList.builder(
+                      itemScrollController: _previewScroll,
+                      padding: const EdgeInsets.all(16),
+                      itemCount: flat.length,
+                      itemBuilder: (context, i) => _buildPreviewItem(
+                          flat[i].node, flat[i].depth, flat[i].number,
+                          config: config, isDark: isDark),
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreviewItem(ManidocNode node, int depth, String number,
+      {required MarkdownConfig config, required bool isDark}) {
+    final selected = identical(node, _selected);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(8),
+      decoration: selected
+          ? BoxDecoration(
+              border: Border.all(
+                  color: Theme.of(context).colorScheme.primary, width: 2),
+              borderRadius: BorderRadius.circular(8),
+            )
+          : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            app.settings.exportHeadingNumbering
+                ? '$number. ${node.title}'
+                : node.title,
+            style: TextStyle(
+              fontSize: (22.0 - depth * 2).clamp(15.0, 22.0),
+              fontWeight: FontWeight.bold,
             ),
           ),
+          const SizedBox(height: 8),
+          if (node.article.trim().isNotEmpty)
+            MarkdownBlock(data: node.article, config: config),
+          if (node.imagePath.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: _previewImage(node),
+            ),
+          if (node.comment.trim().isNotEmpty)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF2A2618)
+                    : const Color(0xFFFFF8E1),
+                border: const Border(
+                    left: BorderSide(color: Color(0xFFFFCA28), width: 4)),
+              ),
+              child: MarkdownBlock(data: node.comment, config: config),
+            ),
         ],
       ),
     );
