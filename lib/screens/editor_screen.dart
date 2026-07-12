@@ -454,6 +454,7 @@ class _EditorScreenState extends State<EditorScreen> {
       optimize: s.enableExportOptimization,
       jpegQuality: s.exportJpegQuality,
       maxDimension: s.exportMaxDimension,
+      articleFontSize: s.articleFontSize,
       themeCss: await app.workspace!.readThemeCss(project.themeCssFileName),
     );
     _snack(L.t('html_exported'), folderPath: path);

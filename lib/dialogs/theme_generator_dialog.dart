@@ -35,13 +35,17 @@ Future<String?> showThemeGeneratorDialog(
     context: context,
     builder: (context) => StatefulBuilder(
       builder: (context, setState) {
+        // 本家互換の変数体系(--primary-color 等)で出力する
         String buildCss() => '''
 /* openManidoc theme: ${nameController.text} */
-:root { --accent: ${_hex(accent)}; }
-body { font-family: $font; font-size: ${fontSize.round()}px; }
-h1, header h1 { color: ${_hex(accent)}; }
-h2, h3, h4, h5, h6 { border-left-color: ${_hex(accent)}; }
-nav#toc a:hover { background: ${_hex(accent)}; }
+:root {
+  --primary-color: ${_hex(accent)};
+  --h1-gradient-start: ${_hex(accent)};
+  --h1-gradient-end: ${_hex(accent)};
+  --article-font-size: ${fontSize.round()}px;
+  --comment-font-size: ${fontSize.round()}px;
+}
+body { font-family: $font; }
 ''';
 
         return AlertDialog(

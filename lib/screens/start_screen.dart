@@ -250,6 +250,7 @@ class _StartScreenState extends State<StartScreen> {
       numbering: s.exportHeadingNumbering,
       tts: s.enableExportTts,
       ttsSpeed: s.exportTtsSpeed,
+      articleFontSize: s.articleFontSize,
     );
     _snack(L.t('portal_done'), folderPath: dir);
   }
@@ -328,6 +329,7 @@ class _StartScreenState extends State<StartScreen> {
       optimize: s.enableExportOptimization,
       jpegQuality: s.exportJpegQuality,
       maxDimension: s.exportMaxDimension,
+      articleFontSize: s.articleFontSize,
       themeCss: await ws.readThemeCss(project.themeCssFileName),
     );
     setState(() {});

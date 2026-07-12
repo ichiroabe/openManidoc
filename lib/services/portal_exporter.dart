@@ -17,7 +17,8 @@ class PortalExporter {
       {bool includeToc = true,
       bool numbering = true,
       bool tts = false,
-      double ttsSpeed = 1.0}) async {
+      double ttsSpeed = 1.0,
+      double articleFontSize = 14}) async {
     final stamp = DateTime.now()
         .toIso8601String()
         .replaceAll(RegExp(r'[:.]'), '-')
@@ -38,6 +39,7 @@ class PortalExporter {
         numbering: numbering,
         tts: tts,
         ttsSpeed: ttsSpeed,
+        articleFontSize: articleFontSize,
         themeCss: await workspace.readThemeCss(project.themeCssFileName),
       );
       final updated =
