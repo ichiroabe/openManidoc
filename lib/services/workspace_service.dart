@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../models/manidoc_node.dart';
 import '../models/manidoc_project.dart';
+import '../models/tag_definition.dart';
 
 /// ワークスペース = プロジェクトJSONが並ぶフォルダ。
 /// レイアウト（旧Manidoc互換）:
@@ -22,6 +23,39 @@ class WorkspaceService {
 
   String imagesDirPath(String projectId) =>
       '$workspacePath${Platform.pathSeparator}$projectId${Platform.pathSeparator}images';
+
+  /// ワークスペース設定(タグ定義など)。旧Manidoc互換。
+  String get _settingsPath =>
+      '$workspacePath${Platform.pathSeparator}workspace.settings.json';
+
+  /// workspace.settings.json の tags[] を読む
+  Future<List<TagDefinition>> loadTags() async {
+    final file = File(_settingsPath);
+    if (!await file.exists()) return [];
+    try {
+      final json = jsonDecode(await file.readAsString());
+      final tags = json['tags'] as List<dynamic>? ?? [];
+      return tags
+          .map((e) => TagDefinition.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// tags[] を保存(他のキーは保持する)
+  Future<void> saveTags(List<TagDefinition> tags) async {
+    final file = File(_settingsPath);
+    Map<String, dynamic> json = {};
+    if (await file.exists()) {
+      try {
+        final parsed = jsonDecode(await file.readAsString());
+        if (parsed is Map<String, dynamic>) json = parsed;
+      } catch (_) {}
+    }
+    json['tags'] = tags.map((t) => t.toJson()).toList();
+    await file.writeAsString(_encoder.convert(json));
+  }
 
   /// テーマCSSは {workspace}/themes/*.css に置く
   String get themesDirPath =>

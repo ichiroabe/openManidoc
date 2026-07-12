@@ -16,6 +16,7 @@ import '../models/manidoc_node.dart';
 import '../models/manidoc_project.dart';
 import '../services/html_exporter.dart';
 import '../services/html_import.dart';
+import '../services/link_router.dart';
 import '../services/markdown_io.dart';
 import '../widgets/wysiwyg_editor.dart';
 import '../widgets/mindmap_view.dart';
@@ -78,6 +79,8 @@ class _EditorScreenState extends State<EditorScreen> {
   void initState() {
     super.initState();
     _loadThemes();
+    // エディタ内リンク(Ctrl/ダブルクリック)の遷移をこの画面で処理する
+    activeLinkHandler = _onLinkTap;
     if (project.rootNodes.isNotEmpty) {
       final initial = widget.initialNodeId != null
           ? _findById(project.rootNodes, widget.initialNodeId!)
@@ -97,6 +100,7 @@ class _EditorScreenState extends State<EditorScreen> {
 
   @override
   void dispose() {
+    if (identical(activeLinkHandler, _onLinkTap)) activeLinkHandler = null;
     _titleController.dispose();
     _aiPromptController.dispose();
     _searchController.dispose();

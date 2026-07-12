@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'l10n/strings.dart';
 import 'models/manidoc_project.dart';
+import 'models/tag_definition.dart';
 import 'services/ai_service.dart';
 import 'services/settings_service.dart';
 import 'services/workspace_service.dart';
@@ -14,6 +15,7 @@ class AppState extends ChangeNotifier {
 
   WorkspaceService? workspace;
   List<ManidocProject> projects = [];
+  List<TagDefinition> workspaceTags = []; // workspace.settings.json のタグ定義
   ThemeMode themeMode = ThemeMode.light;
   bool loading = false;
   AppSettings settings = AppSettings();
@@ -41,21 +43,41 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// ワークスペース内の全プロジェクトから使われているタグの一覧
+  /// タグ候補: workspace.settings.json の定義タグ + 実際に使われているタグ
   List<String> get allTags {
-    final tags = projects
-        .map((p) => p.tag)
-        .where((t) => t.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
-    return tags;
+    final names = <String>{
+      for (final t in workspaceTags) t.name,
+      for (final p in projects)
+        if (p.tag.isNotEmpty) p.tag,
+    }..removeWhere((n) => n.isEmpty);
+    final list = names.toList()..sort();
+    return list;
+  }
+
+  /// タグ名 → 画像パス(定義がなければnull)
+  String? tagImage(String tagName) {
+    for (final t in workspaceTags) {
+      if (t.name == tagName && t.imagePath.isNotEmpty) return t.imagePath;
+    }
+    return null;
   }
 
   Future<void> setProjectTag(ManidocProject project, String tag) async {
     project.tag = tag;
+    // 未定義タグなら定義にも追加する
+    if (tag.isNotEmpty && !workspaceTags.any((t) => t.name == tag)) {
+      workspaceTags.add(TagDefinition(name: tag));
+      await workspace!.saveTags(workspaceTags);
+    }
     await workspace!.saveProject(project);
     await refreshProjects();
+  }
+
+  /// タグ管理画面からの一括保存
+  Future<void> saveWorkspaceTags(List<TagDefinition> tags) async {
+    workspaceTags = tags;
+    await workspace!.saveTags(workspaceTags);
+    notifyListeners();
   }
 
   Future<void> setWorkspace(String path) async {
@@ -84,6 +106,7 @@ class AppState extends ChangeNotifier {
     loading = true;
     notifyListeners();
     projects = await ws.loadProjects();
+    workspaceTags = await ws.loadTags();
     _sortProjects();
     loading = false;
     notifyListeners();

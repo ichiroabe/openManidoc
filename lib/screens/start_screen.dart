@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../dialogs/settings_dialog.dart';
 import '../dialogs/tag_dialog.dart';
+import '../dialogs/tag_manager_dialog.dart';
 import '../l10n/strings.dart';
 import '../models/manidoc_node.dart';
 import '../models/manidoc_project.dart';
@@ -579,6 +580,34 @@ class _StartScreenState extends State<StartScreen> {
     );
   }
 
+  /// タグチップ(定義に画像があればサムネイル付き)
+  Widget _buildTagChip(BuildContext context, String tag) {
+    final imgPath = app.tagImage(tag);
+    final hasImg = imgPath != null && File(imgPath).existsSync();
+    return Container(
+      padding: EdgeInsets.only(
+          left: hasImg ? 2 : 8, right: 8, top: 2, bottom: 2),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (hasImg) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(File(imgPath),
+                  width: 16, height: 16, fit: BoxFit.cover),
+            ),
+            const SizedBox(width: 4),
+          ],
+          Text(tag, style: const TextStyle(fontSize: 11)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildManagementRow(BuildContext context) {
     return Row(
       children: [
@@ -607,6 +636,11 @@ class _StartScreenState extends State<StartScreen> {
         ),
         const Spacer(),
         if (app.workspace != null) ...[
+          TextButton.icon(
+            onPressed: () => showTagManagerDialog(context, app),
+            icon: const Icon(Icons.sell_outlined, size: 18),
+            label: Text(L.t('tag_manager')),
+          ),
           TextButton.icon(
             onPressed: _exportPortal,
             icon: const Icon(Icons.language, size: 18),
@@ -665,18 +699,7 @@ class _StartScreenState extends State<StartScreen> {
                 Row(
                   children: [
                     if (project.tag.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .secondaryContainer,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(project.tag,
-                            style: const TextStyle(fontSize: 11)),
-                      )
+                      _buildTagChip(context, project.tag)
                     else
                       const SizedBox(height: 20),
                     const Spacer(),
