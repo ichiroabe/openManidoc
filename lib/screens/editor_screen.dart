@@ -57,6 +57,7 @@ class _EditorScreenState extends State<EditorScreen> {
   double _commentHeight = _defaultCommentHeight;
   bool _generatingImage = false;
   List<String> _themeFiles = [];
+  Color? _accentColor;
 
   // 検索・置換
   final _searchController = TextEditingController();
@@ -87,6 +88,7 @@ class _EditorScreenState extends State<EditorScreen> {
   void initState() {
     super.initState();
     _loadThemes();
+    _updateThemeColor();
     // エディタ内リンク(Ctrl/ダブルクリック)の遷移をこの画面で処理する
     activeLinkHandler = _onLinkTap;
     if (project.rootNodes.isNotEmpty) {
@@ -104,6 +106,39 @@ class _EditorScreenState extends State<EditorScreen> {
   Future<void> _loadThemes() async {
     final files = await app.workspace!.listThemeCssFiles();
     if (mounted) setState(() => _themeFiles = files);
+  }
+
+  Future<void> _updateThemeColor() async {
+    if (project.themeCssFileName.isEmpty) {
+      if (mounted) setState(() => _accentColor = null);
+      return;
+    }
+    try {
+      final css = await app.workspace!.readThemeCss(project.themeCssFileName);
+      if (css != null) {
+        final reg = RegExp(r'--primary-color\s*:\s*(#[0-9a-fA-F]{6})');
+        final match = reg.firstMatch(css);
+        if (match != null) {
+          final hex = match.group(1);
+          if (hex != null) {
+            final color = _parseHex(hex);
+            if (color != null) {
+              if (mounted) setState(() => _accentColor = color);
+              return;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _accentColor = null);
+  }
+
+  Color? _parseHex(String v) {
+    var s = v.replaceAll('#', '').trim();
+    if (s.length != 6) return null;
+    final n = int.tryParse(s, radix: 16);
+    if (n == null) return null;
+    return Color(0xFF000000 | n);
   }
 
   @override
@@ -467,6 +502,7 @@ class _EditorScreenState extends State<EditorScreen> {
       _dirty = false;
       _selected = null;
     });
+    await _updateThemeColor();
     if (project.rootNodes.isNotEmpty) {
       _select(_findById(project.rootNodes, project.lastSelectedNodeId) ??
           project.rootNodes.first);
@@ -547,6 +583,7 @@ class _EditorScreenState extends State<EditorScreen> {
           project.themeCssFileName = fileName;
           _dirty = true;
         });
+        await _updateThemeColor();
         _snack(L.t('theme_saved', [fileName]));
       }
     } else {
@@ -554,6 +591,7 @@ class _EditorScreenState extends State<EditorScreen> {
         project.themeCssFileName = selected;
         _dirty = true;
       });
+      await _updateThemeColor();
     }
   }
 
@@ -1501,13 +1539,14 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Widget _buildPreviewPanel(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accentColor = _accentColor ?? Theme.of(context).colorScheme.primary;
     // リンク(#node:id / 外部URL)をタップで処理できるよう LinkConfig を差し込む
     final config =
         (isDark ? MarkdownConfig.darkConfig : MarkdownConfig.defaultConfig)
             .copy(configs: [
       LinkConfig(
         style: TextStyle(
-          color: Theme.of(context).colorScheme.primary,
+          color: accentColor,
           decoration: TextDecoration.underline,
         ),
         onTap: _onLinkTap,
@@ -1584,13 +1623,14 @@ class _EditorScreenState extends State<EditorScreen> {
   Widget _buildPreviewItem(ManidocNode node, int depth, String number,
       {required MarkdownConfig config, required bool isDark}) {
     final selected = identical(node, _selected);
+    final accentColor = _accentColor ?? Theme.of(context).colorScheme.primary;
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
       padding: const EdgeInsets.all(8),
       decoration: selected
           ? BoxDecoration(
               border: Border.all(
-                  color: Theme.of(context).colorScheme.primary, width: 2),
+                  color: accentColor, width: 2),
               borderRadius: BorderRadius.circular(8),
             )
           : null,
@@ -1604,6 +1644,7 @@ class _EditorScreenState extends State<EditorScreen> {
             style: TextStyle(
               fontSize: (22.0 - depth * 2).clamp(15.0, 22.0),
               fontWeight: FontWeight.bold,
+              color: accentColor,
             ),
           ),
           const SizedBox(height: 8),
@@ -1623,8 +1664,8 @@ class _EditorScreenState extends State<EditorScreen> {
                 color: isDark
                     ? const Color(0xFF2A2618)
                     : const Color(0xFFFFF8E1),
-                border: const Border(
-                    left: BorderSide(color: Color(0xFFFFCA28), width: 4)),
+                border: Border(
+                    left: BorderSide(color: accentColor, width: 4)),
               ),
               child: MarkdownBlock(data: node.comment, config: config),
             ),

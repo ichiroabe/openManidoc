@@ -100,6 +100,6 @@ flutter:
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
 
-dependency_overrides:
-  appflowy_editor:
-    path: third_party/appflowy_editor
+# dependency_overrides:
+#   appflowy_editor:
+#     path: third_party/appflowy_editor

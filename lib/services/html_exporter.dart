@@ -8,7 +8,7 @@ import '../models/manidoc_node.dart';
 import '../models/manidoc_project.dart';
 import 'workspace_service.dart';
 
-/// プロジェクトを単一フォルダ（index.html + images/）へ書き出す。
+/// プロジェクトを単一フォルダ（index.html + images/ + style.css）へ書き出す。
 ///
 /// 出力HTMLの構造・クラス名・CSS変数は **本家 Manidoc と互換**にしてある。
 /// そのため本家で作った既存テーマCSS（`--primary-color` 等の :root 変数と
@@ -25,6 +25,17 @@ class HtmlExporter {
   double _articleSize = 14;
   String? _themeCss;
 
+  String getBaseCss({
+    bool includeToc = true,
+    bool tts = false,
+    double articleFontSize = 14,
+  }) {
+    _includeToc = includeToc;
+    _tts = tts;
+    _articleSize = articleFontSize;
+    return _baseCss();
+  }
+
   /// 書き出し先フォルダのパスを返す
   Future<String> export(ManidocProject project, String outputDir,
       {bool includeToc = true,
@@ -35,7 +46,8 @@ class HtmlExporter {
       int jpegQuality = 80,
       int maxDimension = 1920,
       double articleFontSize = 14,
-      String? themeCss}) async {
+      String? themeCss,
+      bool isBulkExport = false}) async {
     _includeToc = includeToc;
     _numbering = numbering;
     _tts = tts;
@@ -63,9 +75,37 @@ class HtmlExporter {
       }
     }
 
-    final html = _buildHtml(project);
+    // CSSの作成とマージ
+    var cssContent = _baseCss();
+    if (_themeCss != null && _themeCss!.trim().isNotEmpty) {
+      cssContent = _mergeCustomRootVariables(cssContent, _themeCss!);
+    }
+
+    if (isBulkExport) {
+      // 一括出力時の個別プロジェクトフォルダ内の style.css（差分のみ）
+      var projectStyleContent = '/* Project-specific style overrides */\n';
+      if (_themeCss != null && _themeCss!.trim().isNotEmpty) {
+        final regRoot = RegExp(r':root\s*\{([^}]+)\}', dotAll: true);
+        final match = regRoot.firstMatch(_themeCss!);
+        if (match != null) {
+          projectStyleContent = ':root {\n${match.group(1) ?? ""}\n}\n';
+        }
+        final nonRoot = _themeCss!.replaceAll(RegExp(r':root\s*\{[^}]+\}', dotAll: true), '').trim();
+        if (nonRoot.isNotEmpty) {
+          projectStyleContent += '\n/* Custom theme additions */\n$nonRoot\n';
+        }
+      }
+      await File('$outputDir${Platform.pathSeparator}style.css')
+          .writeAsString(projectStyleContent, encoding: utf8);
+    } else {
+      // 単体出力時のフル style.css
+      await File('$outputDir${Platform.pathSeparator}style.css')
+          .writeAsString(cssContent, encoding: utf8);
+    }
+
+    final html = _buildHtml(project, isBulkExport);
     await File('$outputDir${Platform.pathSeparator}index.html')
-        .writeAsString(html);
+        .writeAsString(html, encoding: utf8);
     return outputDir;
   }
 
@@ -106,9 +146,32 @@ class HtmlExporter {
   String _md(String text) => md.markdownToHtml(text,
       extensionSet: md.ExtensionSet.gitHubFlavored);
 
+  /// テーマCSS内の :root ブロックをベースCSSの :root にマージし、
+  /// それ以外のカスタムルールは末尾に追記する（本家 MergeCustomRootVariables 互換）
+  String _mergeCustomRootVariables(String baseCss, String customCssContent) {
+    final regRoot = RegExp(r':root\s*\{([^}]+)\}', dotAll: true);
+    final match = regRoot.firstMatch(customCssContent);
+    var merged = baseCss;
+    if (match != null) {
+      final customVariables = match.group(1) ?? '';
+      merged = baseCss.replaceAll(
+          RegExp(r':root\s*\{[^}]+\}', dotAll: true),
+          ':root {\n$customVariables\n}');
+    }
+
+    final nonRoot = customCssContent
+        .replaceAll(RegExp(r':root\s*\{[^}]+\}', dotAll: true), '')
+        .trim();
+    if (nonRoot.isNotEmpty) {
+      merged += '\n/* Custom theme additions */\n$nonRoot';
+    }
+
+    return merged;
+  }
+
   // ---------- HTML本体 ----------
 
-  String _buildHtml(ManidocProject project) {
+  String _buildHtml(ManidocProject project, bool isBulkExport) {
     final toc = StringBuffer();
     final body = StringBuffer();
 
@@ -126,9 +189,12 @@ class HtmlExporter {
       chapter++;
     }
 
-    final themeBlock = (_themeCss != null && _themeCss!.trim().isNotEmpty)
-        ? '<style data-theme-css>\n${_themeCss!}\n</style>'
-        : '';
+    final cssLinks = isBulkExport
+        ? '''
+<link rel="stylesheet" href="../workspace.css">
+<link rel="stylesheet" href="style.css">'''
+        : '''
+<link rel="stylesheet" href="style.css">''';
 
     final tocMarkup = _includeToc
         ? '''
@@ -148,10 +214,7 @@ $toc    </ul>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${_esc(project.name)}</title>
-<style>
-${_baseCss()}
-</style>
-$themeBlock
+$cssLinks
 </head>
 <body>
 $tocMarkup

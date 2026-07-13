@@ -12,9 +12,7 @@ class AiException implements Exception {
   String toString() => message;
 }
 
-/// AI連携。旧ManidocのAIGeneratorManagerに準拠:
-/// - Gemini: generativelanguage.googleapis.com generateContent
-/// - LocalLLM: OpenAI互換 /chat/completions (LM Studio, Ollama等)
+/// AI連携。ChatGPT/ClaudeのAPIおよび通信処理をサポート。
 class AiService {
   final AppSettings settings;
 
@@ -33,11 +31,15 @@ class AiService {
     switch (settings.effectiveAIProvider) {
       case 'Gemini':
         return _geminiChat(history, systemInstruction, useGrounding);
+      case 'ChatGPT':
+        return _chatgptChat(history, systemInstruction);
+      case 'Claude':
+        return _claudeChat(history, systemInstruction);
       case 'LocalLLM':
         // ローカルLLMはWeb検索非対応
         return _localLlmChat(history, systemInstruction);
       default:
-        throw AiException('AIプロバイダが未設定です。「⚙ 設定」からGemini APIキー'
+        throw AiException('AIプロバイダが未設定です。「⚙ 設定」からAPIキー'
             'またはローカルLLMのエンドポイントを設定してください。');
     }
   }
@@ -123,6 +125,74 @@ class AiService {
       default:
         return 'Geminiサーバーエラーが発生しました($status)。\n$body';
     }
+  }
+
+  Future<String> _chatgptChat(
+      List<(String, String)> history, String? systemInstruction) async {
+    final url = Uri.parse('https://api.openai.com/v1/chat/completions');
+    final body = <String, dynamic>{
+      'model': settings.openaiModel.isEmpty ? 'gpt-4o' : settings.openaiModel,
+      'messages': [
+        if (systemInstruction != null)
+          {'role': 'system', 'content': systemInstruction},
+        for (final (role, content) in history)
+          {'role': role, 'content': content},
+      ],
+    };
+    final response = await http.post(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${settings.openaiApiKey}',
+      },
+      body: jsonEncode(body),
+    ).timeout(_timeout);
+
+    if (response.statusCode != 200) {
+      throw AiException('ChatGPT APIエラー(${response.statusCode}):\n${utf8.decode(response.bodyBytes)}');
+    }
+    final json = jsonDecode(utf8.decode(response.bodyBytes));
+    final text = json?['choices']?[0]?['message']?['content'] as String?;
+    if (text == null || text.isEmpty) {
+      throw AiException('ChatGPTからレスポンスを取得できませんでした。');
+    }
+    return text;
+  }
+
+  Future<String> _claudeChat(
+      List<(String, String)> history, String? systemInstruction) async {
+    final url = Uri.parse('https://api.anthropic.com/v1/messages');
+    final body = <String, dynamic>{
+      'model': settings.claudeModel.isEmpty ? 'claude-3-5-sonnet-20241022' : settings.claudeModel,
+      'max_tokens': 4000,
+      if (systemInstruction != null) 'system': systemInstruction,
+      'messages': [
+        for (final (role, content) in history)
+          {
+            'role': role == 'assistant' ? 'assistant' : 'user',
+            'content': content,
+          },
+      ],
+    };
+    final response = await http.post(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': settings.claudeApiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: jsonEncode(body),
+    ).timeout(_timeout);
+
+    if (response.statusCode != 200) {
+      throw AiException('Claude APIエラー(${response.statusCode}):\n${utf8.decode(response.bodyBytes)}');
+    }
+    final json = jsonDecode(utf8.decode(response.bodyBytes));
+    final text = json?['content']?[0]?['text'] as String?;
+    if (text == null || text.isEmpty) {
+      throw AiException('Claudeからレスポンスを取得できませんでした。');
+    }
+    return text;
   }
 
   Future<String> _localLlmChat(

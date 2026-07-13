@@ -7,7 +7,7 @@ import 'package:open_manidoc/services/html_exporter.dart';
 import 'package:open_manidoc/services/workspace_service.dart';
 
 void main() {
-  test('exported HTML uses Manidoc-compatible classes and applies theme CSS',
+  test('exported HTML uses Manidoc-compatible classes and references external style.css',
       () async {
     final tmp = await Directory.systemTemp.createTemp('om_export_test');
     final ws = WorkspaceService(tmp.path);
@@ -27,6 +27,8 @@ void main() {
     await HtmlExporter(ws).export(project, outDir, themeCss: theme);
     final html =
         await File('$outDir${Platform.pathSeparator}index.html').readAsString();
+    final css =
+        await File('$outDir${Platform.pathSeparator}style.css').readAsString();
 
     // 本家互換のクラス名・構造
     expect(html, contains('class="node-container" id="node-'));
@@ -35,12 +37,11 @@ void main() {
     expect(html, contains('class="content-wrapper"'));
     expect(html, contains('<nav id="sidebar">'));
     expect(html, contains('class="toc-child"'));
+    expect(html, contains('<link rel="stylesheet" href="style.css">'));
 
-    // ベースCSSの後にテーマCSSが注入され、変数を上書きできる
-    final basePos = html.indexOf('--primary-color: #0056b3;');
-    final themePos = html.indexOf('--primary-color: #ff00aa;');
-    expect(basePos, greaterThanOrEqualTo(0));
-    expect(themePos, greaterThan(basePos)); // テーマが後 = 上書きが効く
+    // style.css にマージされた変数とカスタムスタイルが含まれていること
+    expect(css, contains('--primary-color: #ff00aa;')); // 置換された変数
+    expect(css, contains('.article-body { font-weight: bold; }')); // 追加されたルール
 
     await tmp.delete(recursive: true);
   });

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../models/manidoc_node.dart';
 import '../models/manidoc_project.dart';
 import 'html_exporter.dart';
 import 'workspace_service.dart';
@@ -18,7 +19,9 @@ class PortalExporter {
       bool numbering = true,
       bool tts = false,
       double ttsSpeed = 1.0,
-      double articleFontSize = 14}) async {
+      double articleFontSize = 14,
+      String indexTheme = 'Light',
+      String customCssPath = ''}) async {
     final stamp = DateTime.now()
         .toIso8601String()
         .replaceAll(RegExp(r'[:.]'), '-')
@@ -27,11 +30,22 @@ class PortalExporter {
         '${workspace.workspacePath}${Platform.pathSeparator}web_portal_$stamp';
     await Directory(outDir).create(recursive: true);
 
+    // 1. 共通の workspace.css をルートに書き出す (ベースCSS)
     final exporter = HtmlExporter(workspace);
+    final baseCss = exporter.getBaseCss(
+      includeToc: includeToc,
+      tts: tts,
+      articleFontSize: articleFontSize,
+    );
+    await File('$outDir${Platform.pathSeparator}workspace.css')
+        .writeAsString(baseCss, encoding: utf8);
+
     final cards = StringBuffer();
     for (final project in projects) {
       final safeName =
           project.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+      
+      // 各プロジェクトを isBulkExport = true で個別フォルダにエクスポート
       await exporter.export(
         project,
         '$outDir${Platform.pathSeparator}$safeName',
@@ -41,15 +55,47 @@ class PortalExporter {
         ttsSpeed: ttsSpeed,
         articleFontSize: articleFontSize,
         themeCss: await workspace.readThemeCss(project.themeCssFileName),
+        isBulkExport: true,
       );
+
+      // サムネイル画像のコピーとパス決定 (本家互換)
+      final thumbName = await _copyThumbnail(project, outDir, safeName);
+      final initial = project.name.isNotEmpty ? project.name.substring(0, 1) : 'P';
+      final thumbHtml = thumbName != null
+          ? '<img src="./$thumbName" class="thumbnail" alt="${_esc(project.name)}">'
+          : '<div class="no-image">${_esc(initial)}</div>';
+
       final updated =
           project.lastModifiedAt.toLocal().toString().substring(0, 16);
+      
       cards.writeln('''
 <a class="card" href="./${Uri.encodeComponent(safeName)}/index.html">
-  <div class="card-tag">${project.tag.isEmpty ? '&nbsp;' : _esc(project.tag)}</div>
-  <div class="card-title">${_esc(project.name)}</div>
-  <div class="card-meta">更新: $updated</div>
+  <div class="thumbnail-container">
+    $thumbHtml
+  </div>
+  <div class="details"><div class="meta">
+    <div class="title">${_esc(project.name)}</div>
+    <div class="subtitle">${project.tag.isEmpty ? '更新: $updated' : '${_esc(project.tag)} | 更新: $updated'}</div>
+  </div></div>
 </a>''');
+    }
+
+    // 2. ポータルインデックス用のCSSの構築
+    var portalCss = _getIndexCss(indexTheme);
+    if (customCssPath.isNotEmpty) {
+      final customFile = File(customCssPath);
+      if (await customFile.exists()) {
+        final customCss = await customFile.readAsString();
+        portalCss += '\n/* Custom theme CSS */\n$customCss';
+        
+        // カードの崩れを防ぐための強制上書きスタイルを追加
+        portalCss += '''
+\n/* Tile Layout Fix */
+.grid { display: grid !important; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)) !important; gap: 16px !important; row-gap: 40px !important; }
+.card { display: flex !important; flex-direction: column !important; text-decoration: none !important; padding: 0 !important; margin: 0 !important; border: none !important; }
+.card .thumbnail-container { overflow: hidden !important; aspect-ratio: 16/9 !important; position: relative !important; margin: 0 0 12px 0 !important; padding: 0 !important; }
+.card .thumbnail { width: 100% !important; height: 100% !important; object-fit: cover !important; object-position: center !important; display: block !important; margin: 0 !important; padding: 0 !important; }''';
+      }
     }
 
     final indexHtml = '''
@@ -60,23 +106,7 @@ class PortalExporter {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${_esc(title)}</title>
 <style>
-:root { --bg:#f4f5f7; --fg:#1a1a2e; --card:#fff; --accent:#4361ee; --muted:#6c757d; }
-@media (prefers-color-scheme: dark) {
-  :root { --bg:#16161e; --fg:#e8e8f0; --card:#1f1f2b; --accent:#7b9aff; --muted:#9aa0a6; }
-}
-body { margin:0; background:var(--bg); color:var(--fg);
-  font-family:"Segoe UI","Hiragino Sans","Noto Sans JP",sans-serif; }
-header { padding:2.5rem 1.5rem 1rem; max-width:1080px; margin:0 auto; }
-h1 { margin:0; }
-.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
-  gap:1rem; padding:1.5rem; max-width:1080px; margin:0 auto; }
-.card { background:var(--card); border-radius:12px; padding:1.2rem; text-decoration:none;
-  color:var(--fg); box-shadow:0 2px 8px rgba(0,0,0,0.08); transition:transform .15s; }
-.card:hover { transform:translateY(-3px); }
-.card-tag { font-size:.75rem; color:var(--accent); font-weight:600; min-height:1.1em; }
-.card-title { font-size:1.15rem; font-weight:700; margin:.4rem 0; }
-.card-meta { font-size:.8rem; color:var(--muted); }
-footer { text-align:center; color:var(--muted); font-size:.85rem; padding:2rem 0; }
+$portalCss
 </style>
 </head>
 <body>
@@ -89,7 +119,99 @@ $cards
 </html>
 ''';
     await File('$outDir${Platform.pathSeparator}index.html')
-        .writeAsString(indexHtml);
+        .writeAsString(indexHtml, encoding: utf8);
     return outDir;
+  }
+
+  String? _findFirstImage(List<ManidocNode> nodes) {
+    for (final node in nodes) {
+      if (node.imagePath.trim().isNotEmpty) return node.imagePath;
+      final childImg = _findFirstImage(node.children);
+      if (childImg != null) return childImg;
+    }
+    return null;
+  }
+
+  Future<String?> _copyThumbnail(
+      ManidocProject project, String outDir, String folderName) async {
+    final firstImage = _findFirstImage(project.rootNodes);
+    if (firstImage == null || firstImage.trim().isEmpty) return null;
+
+    final imagesDir = Directory(workspace.imagesDirPath(project.id));
+    final sourceFile =
+        File('${imagesDir.path}${Platform.pathSeparator}$firstImage');
+    if (!await sourceFile.exists()) return null;
+
+    final ext = sourceFile.path.split('.').last;
+    final thumbName = 'thumb_$folderName.$ext';
+    final destFile = File('$outDir${Platform.pathSeparator}$thumbName');
+
+    await sourceFile.copy(destFile.path);
+    return thumbName;
+  }
+
+  String _getIndexCss(String theme) {
+    var baseCss = '';
+    if (theme == 'Dark') {
+      baseCss = '''
+:root { --bg-color: #0f0f0f; --text-primary: #f1f1f1; --text-secondary: #aaaaaa; --card-bg: #1a1a1a; --back-link-color: #4a6cf7; }
+body { font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; background-color: var(--bg-color); margin: 0; padding: 0 0 40px 0; color: var(--text-primary); }
+header { max-width: 1080px; margin: 0 auto; padding: 40px 24px 24px; }
+h1 { font-size: 24px; font-weight: 700; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; row-gap: 40px; max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+.card { text-decoration: none; color: inherit; display: flex; flex-direction: column; cursor: pointer; transition: transform 0.2s ease, box-shadow 0.2s ease; border-radius: 12px; }
+.card:hover { transform: translateY(-8px); box-shadow: 0 12px 32px rgba(0,0,0,0.5); }
+.thumbnail-container { width: 100%; aspect-ratio: 16 / 9; background-color: #2a2a2a; border-radius: 12px; overflow: hidden; position: relative; margin-bottom: 12px; transition: border-radius 0.2s; }
+.card:hover .thumbnail-container { border-radius: 4px; }
+.thumbnail { width: 100%; height: 100%; object-fit: cover; }
+.no-image { width: 100%; height: 100%; background: linear-gradient(135deg, #4a6cf7, #7a4aef); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 32px; }
+.details { display: flex; padding: 0 4px; }
+.meta { display: flex; flex-direction: column; }
+.title { font-size: 16px; font-weight: 600; line-height: 22px; margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.subtitle { font-size: 14px; color: var(--text-secondary); }
+footer { text-align: center; color: var(--text-secondary); font-size: 0.85rem; padding: 40px 0; }''';
+    } else if (theme == 'Minimal') {
+      baseCss = '''
+:root { --bg-color: #ffffff; --text-primary: #111111; --text-secondary: #555555; --back-link-color: #333333; }
+body { font-family: "Georgia", serif; background-color: var(--bg-color); margin: 0; padding: 0 0 40px 0; color: var(--text-primary); }
+header { max-width: 1080px; margin: 0 auto; padding: 40px 24px 24px; border-bottom: 1px solid #ddd; }
+h1 { font-size: 20px; font-weight: 400; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 24px; max-width: 1080px; margin: 40px auto 0; padding: 0 24px; }
+.card { text-decoration: none; color: inherit; display: flex; flex-direction: column; cursor: pointer; border: 1px solid #e0e0e0; padding: 10px; transition: transform 0.2s ease, border-color 0.2s ease; }
+.card:hover { transform: translateY(-4px); border-color: #999; }
+.thumbnail-container { width: 100%; aspect-ratio: 16 / 9; background-color: #f0f0f0; overflow: hidden; position: relative; margin-bottom: 8px; }
+.thumbnail { width: 100%; height: 100%; object-fit: cover; }
+.no-image { width: 100%; height: 100%; background: #e8e8e8; display: flex; align-items: center; justify-content: center; color: #999; font-weight: bold; font-size: 28px; }
+.details { display: flex; padding: 0; }
+.meta { display: flex; flex-direction: column; }
+.title { font-size: 14px; font-weight: 600; line-height: 20px; margin-bottom: 2px; }
+.subtitle { font-size: 12px; color: var(--text-secondary); }
+footer { text-align: center; color: var(--text-secondary); font-size: 0.85rem; padding: 40px 0; }''';
+    } else {
+      // Light
+      baseCss = '''
+:root { --bg-color: #f9f9f9; --text-primary: #0f0f0f; --text-secondary: #606060; --card-bg: #ffffff; --back-link-color: #0056b3; }
+body { font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; background-color: var(--bg-color); margin: 0; padding: 0 0 40px 0; color: var(--text-primary); }
+header { max-width: 1080px; margin: 0 auto; padding: 40px 24px 24px; }
+h1 { font-size: 24px; font-weight: 700; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; row-gap: 40px; max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+.card { text-decoration: none; color: inherit; display: flex; flex-direction: column; cursor: pointer; transition: transform 0.2s ease, box-shadow 0.2s ease; border-radius: 12px; background: var(--card-bg); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.card:hover { transform: translateY(-8px); box-shadow: 0 12px 32px rgba(0,0,0,0.12); }
+.thumbnail-container { width: 100%; aspect-ratio: 16 / 9; background-color: #e5e5e5; border-radius: 12px 12px 0 0; overflow: hidden; position: relative; transition: border-radius 0.2s; }
+.card:hover .thumbnail-container { border-radius: 12px 12px 0 0; }
+.thumbnail { width: 100%; height: 100%; object-fit: cover; }
+.no-image { width: 100%; height: 100%; background: linear-gradient(135deg, #6e8efb, #a777e3); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 32px; }
+.details { display: flex; padding: 12px 16px; }
+.meta { display: flex; flex-direction: column; }
+.title { font-size: 16px; font-weight: 600; line-height: 22px; margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.subtitle { font-size: 14px; color: var(--text-secondary); }
+footer { text-align: center; color: var(--text-secondary); font-size: 0.85rem; padding: 40px 0; }''';
+    }
+
+    baseCss += '''
+\n.back-link { position: fixed; top: 20px; left: 20px; background: var(--back-link-color, var(--primary-color, #0056b3)); color: white !important; padding: 0 20px; border-radius: 8px; text-decoration: none !important; font-weight: 600; font-size: 14px; height: 44px; display: flex; align-items: center; z-index: 1001; box-shadow: 0 4px 15px rgba(0,0,0,0.15); transition: all 0.3s ease; }
+.back-link:hover { filter: brightness(0.9); transform: translateY(-2px); }''';
+
+    return baseCss;
   }
 }

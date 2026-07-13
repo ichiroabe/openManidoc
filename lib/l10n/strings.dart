@@ -229,6 +229,11 @@ class L {
     'clear_all': '全消去',
     'undo_one': '1つ戻す',
     'drag_to_draw': 'ドラッグで枠を描画',
+    'ai_theme_prompt': 'AIデザイン指示',
+    'ai_theme_generate': '✨ AIでテーマ生成',
+    'ai_theme_generating': 'デザイン生成中...',
+    'ai_theme_applied': 'AIデザインを適用しました',
+    'ai_theme_failed': 'AIテーマ生成に失敗しました: {0}',
   };
 
   static const Map<String, String> _en = {
@@ -431,5 +436,10 @@ class L {
     'clear_all': 'Clear all',
     'undo_one': 'Undo one',
     'drag_to_draw': 'Drag to draw a box',
+    'ai_theme_prompt': 'AI design instructions',
+    'ai_theme_generate': '✨ Generate theme with AI',
+    'ai_theme_generating': 'Generating design...',
+    'ai_theme_applied': 'Applied AI design',
+    'ai_theme_failed': 'Failed to generate AI theme: {0}',
   };
 }

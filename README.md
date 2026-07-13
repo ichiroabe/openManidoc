@@ -178,10 +178,15 @@ flutter build linux --release
 
 スタート画面の **⚙ 設定** から:
 
-- **Gemini**: API キーとモデル名(既定 `gemini-2.5-flash`)を設定。Web 検索(grounding)が使えます。
+- **Gemini**: API キーとモデル名(既定 `gemini-2.5-flash`)を設定。Web 検索(grounding)が使えます。 **(※動作テスト済み)**
+- **ChatGPT**: OpenAI API キーとモデル名を設定。
+- **Claude**: Anthropic API キーとモデル名を設定。
 - **ローカル LLM**: OpenAI 互換エンドポイントを設定
   - LM Studio: `http://localhost:1234/v1`(モデル名は空で可)
   - Ollama: `http://<ホスト>:11434/v1`(モデル名の指定が必要)
+
+> [!IMPORTANT]
+> APIキーの設定およびAIによる各種自動生成・出力機能は、現在 **Gemini のみで動作テストを実施・確認済み** となっています。ChatGPT、Claude、およびローカルLLMはUIから設定可能ですが、検証中の実験的サポートとなります。
 
 AI エージェント画面で会話し、回答の下に出る **「＋ この内容でプロジェクト作成」** ボタンで新規プロジェクトに取り込めます。**MD モード**を ON にすると、マニュアル向けの Markdown 形式で出力させて取り込みやすくなります。
 
