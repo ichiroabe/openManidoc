@@ -100,6 +100,8 @@ flutter:
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
 
-# dependency_overrides:
-#   appflowy_editor:
-#     path: third_party/appflowy_editor
+# Flutter 3.44+ では pub.dev の appflowy_editor がコンパイル不可のため、
+# onFocusReceived 対応済みの vendored 版を使う
+dependency_overrides:
+  appflowy_editor:
+    path: third_party/appflowy_editor
