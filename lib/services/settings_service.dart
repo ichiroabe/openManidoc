@@ -33,7 +33,7 @@ class AppSettings {
     this.openaiApiKey = '',
     this.openaiModel = 'gpt-4o',
     this.claudeApiKey = '',
-    this.claudeModel = 'claude-3-5-sonnet-20241022',
+    this.claudeModel = 'claude-sonnet-5',
     this.localLlmEndpoint = 'http://localhost:1234/v1',
     this.localLlmModel = '',
     this.projectSortAxis = 'LastModifiedAt',

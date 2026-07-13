@@ -163,9 +163,10 @@ class AiService {
       List<(String, String)> history, String? systemInstruction) async {
     final url = Uri.parse('https://api.anthropic.com/v1/messages');
     final body = <String, dynamic>{
-      'model': settings.claudeModel.isEmpty ? 'claude-3-5-sonnet-20241022' : settings.claudeModel,
+      'model':
+          settings.claudeModel.isEmpty ? 'claude-sonnet-5' : settings.claudeModel,
       'max_tokens': 4000,
-      if (systemInstruction != null) 'system': systemInstruction,
+      'system': ?systemInstruction,
       'messages': [
         for (final (role, content) in history)
           {

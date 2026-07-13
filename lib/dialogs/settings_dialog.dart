@@ -30,9 +30,9 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
     'custom'
   ];
   const claudeModels = [
-    'claude-3-5-sonnet-20241022',
-    'claude-3-5-haiku-20241022',
-    'claude-3-opus-20240229',
+    'claude-sonnet-5',
+    'claude-opus-4-8',
+    'claude-haiku-4-5-20251001',
     'custom'
   ];
 
@@ -88,7 +88,7 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                     style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: provider,
+                  initialValue: provider,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
                     isDense: true,
