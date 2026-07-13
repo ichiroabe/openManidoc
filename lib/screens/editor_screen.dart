@@ -58,6 +58,9 @@ class _EditorScreenState extends State<EditorScreen> {
   bool _generatingImage = false;
   List<String> _themeFiles = [];
   Color? _accentColor;
+  // テーマCSSの Web 全体背景色 / 本文色(リアルタイムプレビューへ反映)
+  Color? _bgColor;
+  Color? _textColor;
 
   // 検索・置換
   final _searchController = TextEditingController();
@@ -110,27 +113,47 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Future<void> _updateThemeColor() async {
     if (project.themeCssFileName.isEmpty) {
-      if (mounted) setState(() => _accentColor = null);
+      if (mounted) {
+        setState(() {
+          _accentColor = null;
+          _bgColor = null;
+          _textColor = null;
+        });
+      }
       return;
     }
     try {
       final css = await app.workspace!.readThemeCss(project.themeCssFileName);
       if (css != null) {
-        final reg = RegExp(r'--primary-color\s*:\s*(#[0-9a-fA-F]{6})');
-        final match = reg.firstMatch(css);
-        if (match != null) {
-          final hex = match.group(1);
-          if (hex != null) {
-            final color = _parseHex(hex);
-            if (color != null) {
-              if (mounted) setState(() => _accentColor = color);
-              return;
-            }
-          }
+        final accent = _cssColor(css, '--primary-color');
+        final bg = _cssColor(css, '--main-bg-color');
+        final text = _cssColor(css, '--text-main');
+        if (mounted) {
+          setState(() {
+            _accentColor = accent;
+            _bgColor = bg;
+            _textColor = text;
+          });
         }
+        return;
       }
     } catch (_) {}
-    if (mounted) setState(() => _accentColor = null);
+    if (mounted) {
+      setState(() {
+        _accentColor = null;
+        _bgColor = null;
+        _textColor = null;
+      });
+    }
+  }
+
+  /// テーマCSSから指定変数の16進カラーを取り出す(見つからなければ null)
+  Color? _cssColor(String css, String varName) {
+    final reg =
+        RegExp('${RegExp.escape(varName)}\\s*:\\s*(#[0-9a-fA-F]{6})');
+    final match = reg.firstMatch(css);
+    if (match == null) return null;
+    return _parseHex(match.group(1)!);
   }
 
   Color? _parseHex(String v) {
@@ -1538,7 +1561,11 @@ class _EditorScreenState extends State<EditorScreen> {
       ?.copyWith(fontWeight: FontWeight.bold);
 
   Widget _buildPreviewPanel(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // テーマの Web 全体背景色があれば、その明度で light/dark を判定する
+    // (背景色をプレビューに反映しつつ本文が読める側の既定スタイルを選ぶ)
+    final isDark = _bgColor != null
+        ? _bgColor!.computeLuminance() < 0.5
+        : Theme.of(context).brightness == Brightness.dark;
     final accentColor = _accentColor ?? Theme.of(context).colorScheme.primary;
     // リンク(#node:id / 外部URL)をタップで処理できるよう LinkConfig を差し込む
     final config =
@@ -1551,6 +1578,8 @@ class _EditorScreenState extends State<EditorScreen> {
         ),
         onTap: _onLinkTap,
       ),
+      if (_textColor != null)
+        PConfig(textStyle: TextStyle(color: _textColor, fontSize: 16)),
     ]);
 
     // 深さ優先で表示順の平坦リストを作る(スクロール同期のインデックスに使う)
@@ -1570,7 +1599,7 @@ class _EditorScreenState extends State<EditorScreen> {
     _previewOrder = [for (final e in flat) e.node];
 
     return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerLowest,
+      color: _bgColor ?? Theme.of(context).colorScheme.surfaceContainerLowest,
       child: Column(
         children: [
           Container(
