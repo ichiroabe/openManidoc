@@ -19,6 +19,15 @@ Future<String?> showThemeGeneratorDialog(
     Color(0xFF118AB2),
     Color(0xFF222222),
   ];
+  const bgPresetColors = <Color>[
+    Color(0xFFFFFFFF),
+    Color(0xFFFCFCFC),
+    Color(0xFFF5F5F5),
+    Color(0xFFE5E5E5),
+    Color(0xFF222222),
+    Color(0xFF1A1A1B),
+    Color(0xFF121212),
+  ];
   const fonts = <String>[
     '"Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif',
     '"Georgia", "Yu Mincho", serif',
@@ -58,6 +67,10 @@ Future<String?> showThemeGeneratorDialog(
       TextEditingController(text: _hex(accent).substring(1)); // 先頭#は除く
   final promptController = TextEditingController();
   var isGenerating = false;
+
+  var bgSelected = _parseHex(props['--main-bg-color']!) ?? bgPresetColors[1];
+  final bgHexController = TextEditingController(
+      text: props['--main-bg-color']!.replaceAll('#', ''));
 
   // 初期値の同期
   props['--primary-color'] = _hex(accent);
@@ -168,6 +181,15 @@ ${keys.join(', ')}
                                         if (c != null) {
                                           accent = c;
                                           hexController.text = v
+                                              .toString()
+                                              .replaceAll('#', '');
+                                        }
+                                      }
+                                      if (k == '--main-bg-color') {
+                                        final c = _parseHex(v.toString());
+                                        if (c != null) {
+                                          bgSelected = c;
+                                          bgHexController.text = v
                                               .toString()
                                               .replaceAll('#', '');
                                         }
@@ -301,6 +323,62 @@ ${keys.join(', ')}
                     ],
                   ),
                   const SizedBox(height: 16),
+                  Text(L.t('web_bg_color'),
+                      style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final color in bgPresetColors)
+                        InkWell(
+                          onTap: () => setState(() {
+                            bgSelected = color;
+                            final hex = _hex(color);
+                            bgHexController.text = hex.substring(1);
+                            props['--main-bg-color'] = hex;
+                            controllers['--main-bg-color']!.text = hex;
+                          }),
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: bgSelected == color
+                                    ? Theme.of(context).colorScheme.onSurface
+                                    : Theme.of(context).colorScheme.outlineVariant,
+                                width: bgSelected == color ? 3 : 1,
+                              ),
+                            ),
+                          ),
+                        ),
+                      SizedBox(
+                        width: 120,
+                        child: TextField(
+                          controller: bgHexController,
+                          decoration: const InputDecoration(
+                            prefixText: '#',
+                            isDense: true,
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (v) {
+                            final c = _parseHex('#$v');
+                            if (c != null) {
+                              setState(() {
+                                bgSelected = c;
+                                final hex = '#$v';
+                                props['--main-bg-color'] = hex;
+                                controllers['--main-bg-color']!.text = hex;
+                              });
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
                   Text(L.t('font_family'),
                       style: Theme.of(context).textTheme.titleSmall),
                   const SizedBox(height: 8),
@@ -398,6 +476,16 @@ ${keys.join(', ')}
                                         if (c != null) {
                                           accent = c;
                                           hexController.text = val
+                                              .replaceAll('#', '')
+                                              .trim();
+                                        }
+                                      }
+                                      // 背景色の同期
+                                      if (entry.key == '--main-bg-color') {
+                                        final c = _parseHex(val);
+                                        if (c != null) {
+                                          bgSelected = c;
+                                          bgHexController.text = val
                                               .replaceAll('#', '')
                                               .trim();
                                         }
