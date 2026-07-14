@@ -46,6 +46,8 @@ dependencies:
   encrypt: ^5.0.3
   scrollable_positioned_list: ^0.3.8
   appflowy_editor: ^6.2.0
+  desktop_drop: ^0.5.0
+  pasteboard: ^0.3.0
 
 dev_dependencies:
   flutter_test:

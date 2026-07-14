@@ -1,8 +1,11 @@
 import 'dart:io';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:markdown_widget/markdown_widget.dart';
+import 'package:pasteboard/pasteboard.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../app_state.dart';
@@ -61,6 +64,8 @@ class _EditorScreenState extends State<EditorScreen> {
   // テーマCSSの Web 全体背景色 / 本文色(リアルタイムプレビューへ反映)
   Color? _bgColor;
   Color? _textColor;
+  // 画像枠にファイルをドラッグ中か(ハイライト表示用)
+  bool _imageDragOver = false;
 
   // 検索・置換
   final _searchController = TextEditingController();
@@ -632,12 +637,64 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   Future<String?> _pickImageToProject() async {
-    const typeGroup = XTypeGroup(
-        label: 'image',
-        extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']);
-    final file = await openFile(acceptedTypeGroups: [typeGroup]);
+    final file = await openFile(acceptedTypeGroups: [_imageTypeGroup]);
     if (file == null) return null;
     return app.workspace!.importImage(project.id, file.path);
+  }
+
+  static const _imageTypeGroup = XTypeGroup(
+      label: 'image', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']);
+
+  static const _imageExts = {
+    'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp' //
+  };
+
+  /// 取り込んだ画像バイト列を選択中ノードへ設定する(D&D / 貼り付け共通)
+  Future<void> _setSelectedImageBytes(List<int> bytes, {String ext = '.png'}) async {
+    final sel = _selected;
+    if (sel == null || bytes.isEmpty) return;
+    final relative =
+        await app.workspace!.importImageBytes(project.id, bytes, ext: ext);
+    if (!mounted) return;
+    setState(() {
+      sel.imagePath = relative;
+      _dirty = true;
+    });
+  }
+
+  /// クリップボードの画像を貼り付け(macOS:⌘V / Win・Linux:Ctrl+V、ボタンからも)
+  Future<void> _pasteImage() async {
+    if (_selected == null) return;
+    try {
+      final bytes = await Pasteboard.image;
+      if (bytes == null || bytes.isEmpty) {
+        _snack(L.t('paste_no_image'));
+        return;
+      }
+      await _setSelectedImageBytes(bytes); // Pasteboard.image は PNG
+    } catch (e) {
+      _snack(L.t('paste_failed', [e]));
+    }
+  }
+
+  /// 画像ファイルをドロップして取り込む
+  Future<void> _onDropImage(DropDoneDetails details) async {
+    if (mounted) setState(() => _imageDragOver = false);
+    if (_selected == null || details.files.isEmpty) return;
+    final dropped = details.files.first;
+    final lower = dropped.name.toLowerCase();
+    final dot = lower.lastIndexOf('.');
+    final ext = dot >= 0 ? lower.substring(dot + 1) : '';
+    if (!_imageExts.contains(ext)) {
+      _snack(L.t('drop_not_image'));
+      return;
+    }
+    try {
+      final bytes = await dropped.readAsBytes();
+      await _setSelectedImageBytes(bytes, ext: '.$ext');
+    } catch (e) {
+      _snack(L.t('drop_failed', [e]));
+    }
   }
 
   Future<void> _editImage() async {
@@ -1458,6 +1515,17 @@ class _EditorScreenState extends State<EditorScreen> {
                 child: Text(L.t('select_image')),
               ),
               const SizedBox(width: 8),
+              Tooltip(
+                message: L.t('paste_image_tip',
+                    [Platform.isMacOS ? '⌘V' : 'Ctrl+V']),
+                child: OutlinedButton(
+                  onPressed: _pasteImage,
+                  style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact),
+                  child: Text(L.t('paste_image')),
+                ),
+              ),
+              const SizedBox(width: 8),
               if (sel.imagePath.isNotEmpty)
                 OutlinedButton(
                   onPressed: () => setState(() {
@@ -1485,25 +1553,57 @@ class _EditorScreenState extends State<EditorScreen> {
             ],
           ),
           const SizedBox(height: 6),
-          Container(
-            width: double.infinity,
-            height: sel.imagePath.isEmpty ? 100 : _imageHeight,
-            decoration: BoxDecoration(
-              border: Border.all(
-                  color: Theme.of(context).colorScheme.outlineVariant),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: sel.imagePath.isEmpty
-                ? Center(
-                    child: Text(L.t('no_image'),
-                        style: Theme.of(context).textTheme.bodySmall))
-                : Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: FittedBox(
-                      fit: BoxFit.contain,
-                      child: _previewImage(sel),
+          // 画像枠: ファイルのD&D と クリップボード貼り付け(⌘/Ctrl+V)に対応
+          CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.keyV, control: true):
+                  _pasteImage,
+              const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
+                  _pasteImage,
+            },
+            child: Focus(
+              child: DropTarget(
+                onDragDone: _onDropImage,
+                onDragEntered: (_) => setState(() => _imageDragOver = true),
+                onDragExited: (_) => setState(() => _imageDragOver = false),
+                child: Builder(builder: (context) {
+                  final dragging = _imageDragOver;
+                  return Container(
+                    width: double.infinity,
+                    height: sel.imagePath.isEmpty ? 100 : _imageHeight,
+                    decoration: BoxDecoration(
+                      color: dragging
+                          ? Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withValues(alpha: 0.08)
+                          : null,
+                      border: Border.all(
+                        color: dragging
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.outlineVariant,
+                        width: dragging ? 2 : 1,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                  ),
+                    child: sel.imagePath.isEmpty
+                        ? Center(
+                            child: Text(
+                                L.t('image_drop_hint',
+                                    [Platform.isMacOS ? '⌘V' : 'Ctrl+V']),
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.bodySmall))
+                        : Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: FittedBox(
+                              fit: BoxFit.contain,
+                              child: _previewImage(sel),
+                            ),
+                          ),
+                  );
+                }),
+              ),
+            ),
           ),
           if (sel.imagePath.isNotEmpty)
             _buildHSplitter((dy) => setState(() =>
