@@ -4,6 +4,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:markdown_widget/markdown_widget.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -66,6 +67,8 @@ class _EditorScreenState extends State<EditorScreen> {
   Color? _textColor;
   // 画像枠にファイルをドラッグ中か(ハイライト表示用)
   bool _imageDragOver = false;
+  // 画像枠のフォーカス(ここにフォーカス時のみ ⌘/Ctrl+V を画像貼り付けに使う)
+  final FocusNode _imageFocusNode = FocusNode(debugLabel: 'imagePaste');
 
   // 検索・置換
   final _searchController = TextEditingController();
@@ -176,6 +179,7 @@ class _EditorScreenState extends State<EditorScreen> {
     _aiPromptController.dispose();
     _searchController.dispose();
     _replaceController.dispose();
+    _imageFocusNode.dispose();
     super.dispose();
   }
 
@@ -666,15 +670,29 @@ class _EditorScreenState extends State<EditorScreen> {
   Future<void> _pasteImage() async {
     if (_selected == null) return;
     try {
-      final bytes = await Pasteboard.image;
-      if (bytes == null || bytes.isEmpty) {
+      final raw = await Pasteboard.image;
+      if (raw == null || raw.isEmpty) {
         _snack(L.t('paste_no_image'));
         return;
       }
-      await _setSelectedImageBytes(bytes); // Pasteboard.image は PNG
+      // Windows のクリップボード画像は BMP バイト列で返るため PNG へ正規化する
+      // (macOS は PNG。いずれも再エンコードで拡張子と中身を一致させる)
+      final png = _toPng(raw);
+      if (png == null) {
+        _snack(L.t('paste_no_image'));
+        return;
+      }
+      await _setSelectedImageBytes(png, ext: '.png');
     } catch (e) {
       _snack(L.t('paste_failed', [e]));
     }
+  }
+
+  /// 任意画像バイト列を PNG に正規化(デコード失敗時は null)
+  List<int>? _toPng(List<int> bytes) {
+    final decoded = img.decodeImage(Uint8List.fromList(bytes));
+    if (decoded == null) return null;
+    return img.encodePng(decoded);
   }
 
   /// 画像ファイルをドロップして取り込む
@@ -1553,55 +1571,69 @@ class _EditorScreenState extends State<EditorScreen> {
             ],
           ),
           const SizedBox(height: 6),
-          // 画像枠: ファイルのD&D と クリップボード貼り付け(⌘/Ctrl+V)に対応
-          CallbackShortcuts(
-            bindings: {
-              const SingleActivator(LogicalKeyboardKey.keyV, control: true):
-                  _pasteImage,
-              const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
-                  _pasteImage,
-            },
-            child: Focus(
+          // 画像枠: ファイルのD&D と クリップボード貼り付け(⌘/Ctrl+V)に対応。
+          // 枠をクリックしてフォーカスした時のみ ⌘/Ctrl+V が効く(本文のテキスト
+          // 貼り付けを奪わないよう、ショートカットは画像枠に限定している)。
+          Focus(
+            focusNode: _imageFocusNode,
+            onFocusChange: (_) => setState(() {}),
+            child: CallbackShortcuts(
+              bindings: {
+                const SingleActivator(LogicalKeyboardKey.keyV, control: true):
+                    _pasteImage,
+                const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
+                    _pasteImage,
+              },
               child: DropTarget(
                 onDragDone: _onDropImage,
                 onDragEntered: (_) => setState(() => _imageDragOver = true),
                 onDragExited: (_) => setState(() => _imageDragOver = false),
-                child: Builder(builder: (context) {
-                  final dragging = _imageDragOver;
-                  return Container(
-                    width: double.infinity,
-                    height: sel.imagePath.isEmpty ? 100 : _imageHeight,
-                    decoration: BoxDecoration(
-                      color: dragging
-                          ? Theme.of(context)
-                              .colorScheme
-                              .primary
-                              .withValues(alpha: 0.08)
-                          : null,
-                      border: Border.all(
-                        color: dragging
-                            ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context).colorScheme.outlineVariant,
-                        width: dragging ? 2 : 1,
+                child: GestureDetector(
+                  onTap: () => _imageFocusNode.requestFocus(),
+                  child: Builder(builder: (context) {
+                    final accent = Theme.of(context).colorScheme.primary;
+                    final dragging = _imageDragOver;
+                    final focused = _imageFocusNode.hasFocus;
+                    final active = dragging || focused;
+                    final sc = Platform.isMacOS ? '⌘V' : 'Ctrl+V';
+                    return Container(
+                      width: double.infinity,
+                      height: sel.imagePath.isEmpty ? 110 : _imageHeight,
+                      decoration: BoxDecoration(
+                        color: dragging ? accent.withValues(alpha: 0.08) : null,
+                        border: Border.all(
+                          color: active
+                              ? accent
+                              : Theme.of(context).colorScheme.outlineVariant,
+                          width: active ? 2 : 1,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: sel.imagePath.isEmpty
-                        ? Center(
-                            child: Text(
-                                L.t('image_drop_hint',
-                                    [Platform.isMacOS ? '⌘V' : 'Ctrl+V']),
-                                textAlign: TextAlign.center,
-                                style: Theme.of(context).textTheme.bodySmall))
-                        : Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: FittedBox(
-                              fit: BoxFit.contain,
-                              child: _previewImage(sel),
+                      child: sel.imagePath.isEmpty
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(8),
+                                child: Text(
+                                    focused
+                                        ? L.t('image_paste_ready', [sc])
+                                        : L.t('image_drop_hint', [sc]),
+                                    textAlign: TextAlign.center,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(color: focused ? accent : null)),
+                              ),
+                            )
+                          : Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: FittedBox(
+                                fit: BoxFit.contain,
+                                child: _previewImage(sel),
+                              ),
                             ),
-                          ),
-                  );
-                }),
+                    );
+                  }),
+                ),
               ),
             ),
           ),
