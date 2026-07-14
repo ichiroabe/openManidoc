@@ -20,6 +20,8 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          # appflowy_editor 6.2.0 は Flutter 3.44+ でコンパイル不可のため 3.38.5 に固定
+          flutter-version: '3.38.5'
           channel: 'stable'
           cache: true
 
@@ -52,6 +54,8 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          # appflowy_editor 6.2.0 は Flutter 3.44+ でコンパイル不可のため 3.38.5 に固定
+          flutter-version: '3.38.5'
           channel: 'stable'
           cache: true
 
@@ -88,6 +92,8 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          # appflowy_editor 6.2.0 は Flutter 3.44+ でコンパイル不可のため 3.38.5 に固定
+          flutter-version: '3.38.5'
           channel: 'stable'
           cache: true
 
