@@ -339,11 +339,19 @@ class _StartScreenState extends State<StartScreen> {
 
   Future<void> _cleanupExport(ManidocProject project, bool html) async {
     final manager = ExportsManager(app.workspace!);
-    final deleted = html
-        ? await manager.deleteOldestHtml(project)
-        : await manager.deleteOldestMd(project);
-    setState(() {});
-    _snack(deleted ? L.t('cleaned_oldest') : L.t('nothing_to_clean'));
+    try {
+      final deleted = html
+          ? await manager.deleteOldestHtml(project)
+          : await manager.deleteOldestMd(project);
+      if (!mounted) return;
+      setState(() {});
+      _snack(deleted ? L.t('cleaned_oldest') : L.t('nothing_to_clean'));
+    } catch (e) {
+      // 削除失敗(フォルダを開いたまま / Google Drive のロック等)を無言にせず通知する
+      if (!mounted) return;
+      setState(() {});
+      _snack(L.t('cleanup_failed', [e]));
+    }
   }
 
   Future<void> _exportMd(ManidocProject project) async {
