@@ -42,6 +42,18 @@ void main() {
     expect(back, contains('後文'));
   });
 
+  test('本家フォーマット ```text / ```powershell を保持する', () {
+    const t = '以下を指示します。\n```text\nステータスを確認して\n```\n正常なら返ります。';
+    expect(types(t), ['paragraph', 'code', 'paragraph']);
+    final back = roundTrip(t);
+    expect(back, contains('```text'));
+    expect(back, contains('ステータスを確認して'));
+
+    const ps = '```powershell\ncd C:\\work\nmkdir x\n```';
+    expect(types(ps), ['code']);
+    expect(roundTrip(ps), contains('```powershell'));
+  });
+
   test('headings/lists/inline-code still round-trip', () {
     expect(roundTrip('# 見出し'), '# 見出し');
     expect(types('- a\n- b'), ['bulleted_list', 'bulleted_list']);

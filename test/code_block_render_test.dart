@@ -31,4 +31,45 @@ void main() {
     expect(find.textContaining('"hello": 1'), findsOneWidget);
     expect(find.text('json'), findsOneWidget);
   });
+
+  testWidgets('edit dialog updates code and markdown output', (tester) async {
+    const md = '```text\nold code\n```';
+    final doc = markdownToDocument(md,
+        markdownParsers: const [CodeBlockMarkdownParser()]);
+    final editorState = EditorState(document: doc);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppFlowyEditor(
+            editorState: editorState,
+            editable: true,
+            blockComponentBuilders: {
+              ...standardBlockComponentBuilderMap,
+              'code': CodeBlockComponentBuilder(),
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // ✏️ 編集アイコンをタップ → ダイアログが開く
+    // (親にonDoubleTapがあるためシングルタップ確定までダブルタップ猶予300msを要する)
+    await tester.tap(find.byIcon(Icons.edit));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+
+    // コード本文を書き換えて適用
+    final codeField = find.byType(TextField).last;
+    await tester.enterText(codeField, 'new code line');
+    await tester.tap(find.byType(FilledButton));
+    await tester.pumpAndSettle();
+
+    // 画面とMarkdown出力の両方に反映される
+    expect(find.textContaining('new code line'), findsOneWidget);
+    final back = documentToMarkdown(editorState.document);
+    expect(back, contains('```text\nnew code line\n```'));
+  });
 }

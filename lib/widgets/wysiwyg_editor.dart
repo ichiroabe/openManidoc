@@ -6,22 +6,27 @@ import 'code_block_markdown.dart';
 
 import '../services/markdown_io.dart';
 
-/// テーブルはテキストブロックでないため、ドキュメントの先頭/末尾/テーブル同士の
-/// 間にテーブルが来るとカーソルを置ける段落が無く「上下を編集できない」状態になる。
-/// そうした位置に空の段落を挿入し、常にテーブルの前後に書けるようにする。
+/// カーソルを置けない(=テキスト入力できない)ブロック型。
+/// テーブルとコードブロックが該当する。
+const Set<String> _nonTextBlockTypes = {TableBlockKeys.type, 'code'};
+
+/// テーブルやコードブロックはテキストブロックでないため、ドキュメントの
+/// 先頭/末尾/これらブロック同士の間に来るとカーソルを置ける段落が無く
+/// 「上下を編集できない」状態になる。そうした位置に空の段落を挿入し、
+/// 常にブロックの前後に書けるようにする。
 void ensureEditableEdgesAroundTables(Document doc) {
-  bool isTable(Node? n) => n != null && n.type == TableBlockKeys.type;
+  bool isBlock(Node? n) => n != null && _nonTextBlockTypes.contains(n.type);
   final nodes = doc.root.children.toList();
 
   // 元の並びを基準に「段落を挿入すべき位置(そのindexの直前)」を集める。
   // index == nodes.length は末尾への追加を意味する。
   final positions = <int>{};
   for (var i = 0; i < nodes.length; i++) {
-    if (!isTable(nodes[i])) continue;
-    // テーブルの前が編集可能でなければ、その前に段落を入れる
-    if (i == 0 || isTable(nodes[i - 1])) positions.add(i);
-    // テーブルの後が編集可能でなければ、その後に段落を入れる
-    if (i == nodes.length - 1 || isTable(nodes[i + 1])) positions.add(i + 1);
+    if (!isBlock(nodes[i])) continue;
+    // ブロックの前が編集可能でなければ、その前に段落を入れる
+    if (i == 0 || isBlock(nodes[i - 1])) positions.add(i);
+    // ブロックの後が編集可能でなければ、その後に段落を入れる
+    if (i == nodes.length - 1 || isBlock(nodes[i + 1])) positions.add(i + 1);
   }
 
   // 後ろの位置から挿入すれば、前方のindexがずれない
@@ -178,7 +183,15 @@ class _WysiwygEditorState extends State<WysiwygEditor> {
           },
           characterShortcutEvents: [
             _nodeLinkShortcut,
-            ...standardCharacterShortcutEvents,
+            // 標準の `/` メニューを「コードブロック」項目入りに差し替える
+            customSlashCommand(
+              [...standardSelectionMenuItems, codeBlockMenuItem],
+              style: Theme.of(context).brightness == Brightness.dark
+                  ? SelectionMenuStyle.dark
+                  : SelectionMenuStyle.light,
+            ),
+            ...standardCharacterShortcutEvents
+                .where((e) => e != slashCommand),
           ],
         ),
       ),
