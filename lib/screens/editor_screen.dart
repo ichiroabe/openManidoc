@@ -1574,16 +1574,18 @@ class _EditorScreenState extends State<EditorScreen> {
           // 画像枠: ファイルのD&D と クリップボード貼り付け(⌘/Ctrl+V)に対応。
           // 枠をクリックしてフォーカスした時のみ ⌘/Ctrl+V が効く(本文のテキスト
           // 貼り付けを奪わないよう、ショートカットは画像枠に限定している)。
-          Focus(
-            focusNode: _imageFocusNode,
-            onFocusChange: (_) => setState(() {}),
-            child: CallbackShortcuts(
-              bindings: {
-                const SingleActivator(LogicalKeyboardKey.keyV, control: true):
-                    _pasteImage,
-                const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
-                    _pasteImage,
-              },
+          // CallbackShortcuts を Focus の外側(祖先)に置く。キーイベントは
+          // フォーカス中ノードから祖先へ伝播するため、この順序でないと発火しない。
+          CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.keyV, control: true):
+                  _pasteImage,
+              const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
+                  _pasteImage,
+            },
+            child: Focus(
+              focusNode: _imageFocusNode,
+              onFocusChange: (_) => setState(() {}),
               child: DropTarget(
                 onDragDone: _onDropImage,
                 onDragEntered: (_) => setState(() => _imageDragOver = true),
