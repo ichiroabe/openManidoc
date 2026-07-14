@@ -1,9 +1,38 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 
 import '../app_state.dart';
 import '../l10n/strings.dart';
 import '../services/ai_service.dart';
+
+/// カラーピッカーを開き、選択された色を返す(キャンセルはnull)
+Future<Color?> _showColorPickerDialog(BuildContext context, Color initial) {
+  var current = initial;
+  return showDialog<Color>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(L.t('pick_color')),
+      content: SingleChildScrollView(
+        child: ColorPicker(
+          pickerColor: initial,
+          onColorChanged: (c) => current = c,
+          enableAlpha: false,
+          hexInputBar: true,
+          pickerAreaHeightPercent: 0.7,
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(L.t('cancel'))),
+        FilledButton(
+            onPressed: () => Navigator.pop(context, current),
+            child: Text(L.t('apply'))),
+      ],
+    ),
+  );
+}
 
 /// 🎨 テーマジェネレータ。本家互換の15種類のCSS変数をサポート。
 /// テーマCSSを生成し、workspace/themes/ へ保存してファイル名を返す(キャンセルはnull)。
@@ -19,15 +48,8 @@ Future<String?> showThemeGeneratorDialog(
     Color(0xFF118AB2),
     Color(0xFF222222),
   ];
-  const bgPresetColors = <Color>[
-    Color(0xFFFFFFFF),
-    Color(0xFFFCFCFC),
-    Color(0xFFF5F5F5),
-    Color(0xFFE5E5E5),
-    Color(0xFF222222),
-    Color(0xFF1A1A1B),
-    Color(0xFF121212),
-  ];
+  // Web背景のパレットはユーザー定義(設定に永続化)。○クリック→ピッカーで
+  // 色を選ぶと、そのスロットに保存され次回以降も使える。
   const fonts = <String>[
     '"Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif',
     '"Georgia", "Yu Mincho", serif',
@@ -68,7 +90,7 @@ Future<String?> showThemeGeneratorDialog(
   final promptController = TextEditingController();
   var isGenerating = false;
 
-  var bgSelected = _parseHex(props['--main-bg-color']!) ?? bgPresetColors[1];
+  var bgSelected = _parseHex(props['--main-bg-color']!) ?? Colors.white;
   final bgHexController = TextEditingController(
       text: props['--main-bg-color']!.replaceAll('#', ''));
 
@@ -320,6 +342,26 @@ ${keys.join(', ')}
                           },
                         ),
                       ),
+                      IconButton(
+                        tooltip: L.t('pick_color'),
+                        icon: const Icon(Icons.colorize),
+                        onPressed: () async {
+                          final c =
+                              await _showColorPickerDialog(context, accent);
+                          if (c == null) return;
+                          setState(() {
+                            accent = c;
+                            final hex = _hex(c);
+                            hexController.text = hex.substring(1);
+                            props['--primary-color'] = hex;
+                            props['--h1-gradient-start'] = hex;
+                            props['--h1-gradient-end'] = hex;
+                            controllers['--primary-color']!.text = hex;
+                            controllers['--h1-gradient-start']!.text = hex;
+                            controllers['--h1-gradient-end']!.text = hex;
+                          });
+                        },
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -330,30 +372,55 @@ ${keys.join(', ')}
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      for (final color in bgPresetColors)
-                        InkWell(
-                          onTap: () => setState(() {
-                            bgSelected = color;
-                            final hex = _hex(color);
-                            bgHexController.text = hex.substring(1);
-                            props['--main-bg-color'] = hex;
-                            controllers['--main-bg-color']!.text = hex;
-                          }),
-                          child: Container(
-                            width: 32,
-                            height: 32,
-                            decoration: BoxDecoration(
-                              color: color,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: bgSelected == color
-                                    ? Theme.of(context).colorScheme.onSurface
-                                    : Theme.of(context).colorScheme.outlineVariant,
-                                width: bgSelected == color ? 3 : 1,
+                      // ○はユーザー定義パレット: クリック→ピッカーで色を選ぶと
+                      // そのスロットに保存され(設定に永続化)、背景色として適用される
+                      for (var pi = 0;
+                          pi < app.settings.bgPaletteColors.length;
+                          pi++)
+                        Builder(builder: (context) {
+                          final slotColor =
+                              _parseHex(app.settings.bgPaletteColors[pi]) ??
+                                  Colors.white;
+                          final isSel = bgSelected == slotColor;
+                          return Tooltip(
+                            message: L.t('palette_slot_tip'),
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: () async {
+                                final c = await _showColorPickerDialog(
+                                    context, slotColor);
+                                if (c == null) return;
+                                final hex = _hex(c);
+                                setState(() {
+                                  app.settings.bgPaletteColors[pi] = hex;
+                                  bgSelected = c;
+                                  bgHexController.text = hex.substring(1);
+                                  props['--main-bg-color'] = hex;
+                                  controllers['--main-bg-color']!.text = hex;
+                                });
+                                await app.settings.save(); // パレットを永続化
+                              },
+                              child: Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: slotColor,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: isSel
+                                        ? Theme.of(context)
+                                            .colorScheme
+                                            .onSurface
+                                        : Theme.of(context)
+                                            .colorScheme
+                                            .outlineVariant,
+                                    width: isSel ? 3 : 1,
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        ),
+                          );
+                        }),
                       SizedBox(
                         width: 120,
                         child: TextField(
@@ -375,6 +442,22 @@ ${keys.join(', ')}
                             }
                           },
                         ),
+                      ),
+                      IconButton(
+                        tooltip: L.t('pick_color'),
+                        icon: const Icon(Icons.colorize),
+                        onPressed: () async {
+                          final c = await _showColorPickerDialog(
+                              context, bgSelected);
+                          if (c == null) return;
+                          setState(() {
+                            bgSelected = c;
+                            final hex = _hex(c);
+                            bgHexController.text = hex.substring(1);
+                            props['--main-bg-color'] = hex;
+                            controllers['--main-bg-color']!.text = hex;
+                          });
+                        },
                       ),
                     ],
                   ),
@@ -443,17 +526,44 @@ ${keys.join(', ')}
                               if (entry.key.contains('-color') ||
                                   entry.key.contains('-bg') ||
                                   entry.key.contains('gradient'))
-                                Container(
-                                  width: 16,
-                                  height: 16,
-                                  decoration: BoxDecoration(
-                                    color: _parseHex(entry.value) ??
-                                        Colors.transparent,
-                                    border: Border.all(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .outlineVariant),
-                                    shape: BoxShape.circle,
+                                Tooltip(
+                                  message: L.t('pick_color'),
+                                  child: InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: () async {
+                                      final c = await _showColorPickerDialog(
+                                          context,
+                                          _parseHex(props[entry.key]!) ??
+                                              Colors.white);
+                                      if (c == null) return;
+                                      final hex = _hex(c);
+                                      props[entry.key] = hex;
+                                      controllers[entry.key]!.text = hex;
+                                      // 上部UI(アクセント/背景)との同期
+                                      if (entry.key == '--primary-color') {
+                                        accent = c;
+                                        hexController.text = hex.substring(1);
+                                      }
+                                      if (entry.key == '--main-bg-color') {
+                                        bgSelected = c;
+                                        bgHexController.text =
+                                            hex.substring(1);
+                                      }
+                                      setState(() {});
+                                    },
+                                    child: Container(
+                                      width: 20,
+                                      height: 20,
+                                      decoration: BoxDecoration(
+                                        color: _parseHex(entry.value) ??
+                                            Colors.transparent,
+                                        border: Border.all(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .outlineVariant),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               const SizedBox(width: 8),

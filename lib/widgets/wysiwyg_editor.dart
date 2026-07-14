@@ -1,6 +1,33 @@
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
 
+import '../services/markdown_io.dart';
+
+/// テーブルはテキストブロックでないため、ドキュメントの先頭/末尾/テーブル同士の
+/// 間にテーブルが来るとカーソルを置ける段落が無く「上下を編集できない」状態になる。
+/// そうした位置に空の段落を挿入し、常にテーブルの前後に書けるようにする。
+void ensureEditableEdgesAroundTables(Document doc) {
+  bool isTable(Node? n) => n != null && n.type == TableBlockKeys.type;
+  final nodes = doc.root.children.toList();
+
+  // 元の並びを基準に「段落を挿入すべき位置(そのindexの直前)」を集める。
+  // index == nodes.length は末尾への追加を意味する。
+  final positions = <int>{};
+  for (var i = 0; i < nodes.length; i++) {
+    if (!isTable(nodes[i])) continue;
+    // テーブルの前が編集可能でなければ、その前に段落を入れる
+    if (i == 0 || isTable(nodes[i - 1])) positions.add(i);
+    // テーブルの後が編集可能でなければ、その後に段落を入れる
+    if (i == nodes.length - 1 || isTable(nodes[i + 1])) positions.add(i + 1);
+  }
+
+  // 後ろの位置から挿入すれば、前方のindexがずれない
+  final sorted = positions.toList()..sort((a, b) => b.compareTo(a));
+  for (final p in sorted) {
+    doc.insert([p], [paragraphNode()]);
+  }
+}
+
 /// 選択時に出るツールバー項目(見出し/太字/斜体/リスト/引用/リンク)
 final List<ToolbarItem> _wysiwygToolbarItems = [
   paragraphItem,
@@ -59,12 +86,14 @@ class _WysiwygEditorState extends State<WysiwygEditor> {
     final doc = md.isEmpty
         ? Document.blank(withInitialText: true)
         : markdownToDocument(md);
+    ensureEditableEdgesAroundTables(doc);
     _editorState = EditorState(document: doc);
     _scrollController = EditorScrollController(editorState: _editorState);
     // 実際の編集が起きたときだけMarkdownを親へ返す(単なる表示では発火しない)
     _editorState.transactionStream.listen((_) {
       if (!mounted) return;
-      widget.onChanged(documentToMarkdown(_editorState.document));
+      widget.onChanged(
+          fixTableMarkdownSpacing(documentToMarkdown(_editorState.document)));
     });
   }
 

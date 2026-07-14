@@ -860,7 +860,8 @@ class _EditorScreenState extends State<EditorScreen> {
     final result = await showExpandedEditDialog(
         context,
         forComment ? L.t('comment_label') : L.t('expanded_article'),
-        forComment ? sel.comment : sel.article);
+        forComment ? sel.comment : sel.article,
+        onPickNodeLink: _pickNodeLink);
     if (result == null) return;
     setState(() {
       if (forComment) {
@@ -1812,7 +1813,8 @@ class _EditorScreenState extends State<EditorScreen> {
           ),
           const SizedBox(height: 8),
           if (node.article.trim().isNotEmpty)
-            MarkdownBlock(data: node.article, config: config),
+            MarkdownBlock(
+                data: fixTableMarkdownSpacing(node.article), config: config),
           if (node.imagePath.trim().isNotEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
@@ -1830,7 +1832,8 @@ class _EditorScreenState extends State<EditorScreen> {
                 border: Border(
                     left: BorderSide(color: accentColor, width: 4)),
               ),
-              child: MarkdownBlock(data: node.comment, config: config),
+              child: MarkdownBlock(
+                  data: fixTableMarkdownSpacing(node.comment), config: config),
             ),
         ],
       ),

@@ -113,3 +113,40 @@ class MarkdownIo {
     return path;
   }
 }
+
+/// GFMテーブルの前後に空行を保証する。
+/// appflowy の documentToMarkdown はテーブルと前後ブロックの間に空行を入れないため、
+/// GFMパーサ(プレビュー/HTML出力)が後続行をテーブルの行として吸収してしまう。
+/// テーブル外のテキストが表に混ざらないよう、テーブルブロックの前後へ空行を挿入する。
+/// (コードフェンス ```/~~~ の内側は対象外)
+String fixTableMarkdownSpacing(String markdown) {
+  final lines = markdown.split('\n');
+  bool isRow(String l) {
+    final t = l.trim();
+    return t.length >= 2 && t.startsWith('|') && t.endsWith('|');
+  }
+
+  final out = <String>[];
+  var inFence = false;
+  for (final line in lines) {
+    final trimmed = line.trim();
+    if (trimmed.startsWith('```') || trimmed.startsWith('~~~')) {
+      inFence = !inFence;
+      out.add(line);
+      continue;
+    }
+    if (inFence) {
+      out.add(line);
+      continue;
+    }
+    final prev = out.isNotEmpty ? out.last : null;
+    if (prev != null && prev.trim().isNotEmpty) {
+      // テーブル開始の直前が非テーブル行 → 空行を挿入
+      if (isRow(line) && !isRow(prev)) out.add('');
+      // テーブル直後の非テーブル行 → 空行を挿入
+      if (!isRow(line) && trimmed.isNotEmpty && isRow(prev)) out.add('');
+    }
+    out.add(line);
+  }
+  return out.join('\n');
+}

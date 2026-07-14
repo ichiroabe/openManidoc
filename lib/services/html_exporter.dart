@@ -5,6 +5,7 @@ import 'package:image/image.dart' as img;
 import 'package:markdown/markdown.dart' as md;
 
 import '../models/manidoc_node.dart';
+import 'markdown_io.dart';
 import '../models/manidoc_project.dart';
 import 'workspace_service.dart';
 
@@ -143,7 +144,7 @@ class HtmlExporter {
   }
 
   String _esc(String s) => const HtmlEscape().convert(s);
-  String _md(String text) => md.markdownToHtml(text,
+  String _md(String text) => md.markdownToHtml(fixTableMarkdownSpacing(text),
       extensionSet: md.ExtensionSet.gitHubFlavored);
 
   /// テーマCSS内の :root ブロックをベースCSSの :root にマージし、

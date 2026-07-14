@@ -25,6 +25,22 @@ class AppSettings {
   int exportMaxDimension;
   double articleFontSize;
 
+  /// テーマジェネレータ「Web背景全体の色」のユーザー定義パレット(hex 8スロット)。
+  /// ○をクリック→カラーピッカーで選んだ色がスロットに保存される。
+  List<String> bgPaletteColors;
+
+  /// 既定パレット: 白・黒 + パステル6色
+  static const List<String> defaultBgPalette = [
+    '#ffffff', // 白
+    '#000000', // 黒
+    '#ffe4e6', // パステルピンク
+    '#ffedd5', // パステルピーチ
+    '#fef9c3', // パステルイエロー
+    '#dcfce7', // パステルグリーン
+    '#dbeafe', // パステルブルー
+    '#ede9fe', // パステルラベンダー
+  ];
+
   AppSettings({
     this.language = 'ja',
     this.aiProvider = 'None',
@@ -44,7 +60,19 @@ class AppSettings {
     this.exportJpegQuality = 80,
     this.exportMaxDimension = 1920,
     this.articleFontSize = 14.0,
-  });
+    List<String>? bgPaletteColors,
+  }) : bgPaletteColors = _normalizePalette(bgPaletteColors);
+
+  /// パレットを既定スロット数(8)に揃える(不足分は既定色で補完)
+  static List<String> _normalizePalette(List<String>? p) {
+    final list = List<String>.of(p ?? defaultBgPalette);
+    for (var i = list.length; i < defaultBgPalette.length; i++) {
+      list.add(defaultBgPalette[i]);
+    }
+    return list.length > defaultBgPalette.length
+        ? list.sublist(0, defaultBgPalette.length)
+        : list;
+  }
 
   bool get hasGeminiKey => geminiApiKey.isNotEmpty;
   bool get hasOpenaiKey => openaiApiKey.isNotEmpty;
@@ -109,6 +137,9 @@ class AppSettings {
             (json['exportMaxDimension'] as num?)?.toInt() ?? 1920,
         articleFontSize:
             (json['articleFontSize'] as num?)?.toDouble() ?? 14.0,
+        bgPaletteColors: (json['bgPaletteColors'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -130,6 +161,7 @@ class AppSettings {
         'exportJpegQuality': exportJpegQuality,
         'exportMaxDimension': exportMaxDimension,
         'articleFontSize': articleFontSize,
+        'bgPaletteColors': bgPaletteColors,
       };
 
   static const _prefKey = 'appSettingsJson';
