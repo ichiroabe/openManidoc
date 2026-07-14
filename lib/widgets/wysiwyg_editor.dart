@@ -1,6 +1,9 @@
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
 
+import 'code_block_component.dart';
+import 'code_block_markdown.dart';
+
 import '../services/markdown_io.dart';
 
 /// テーブルはテキストブロックでないため、ドキュメントの先頭/末尾/テーブル同士の
@@ -85,7 +88,9 @@ class _WysiwygEditorState extends State<WysiwygEditor> {
     final md = widget.initialMarkdown.trim();
     final doc = md.isEmpty
         ? Document.blank(withInitialText: true)
-        : markdownToDocument(md);
+        : markdownToDocument(md,
+            // 6.2.0 標準に無い fenced code block の読み込みを補う(データ損失防止)
+            markdownParsers: const [CodeBlockMarkdownParser()]);
     ensureEditableEdgesAroundTables(doc);
     _editorState = EditorState(document: doc);
     _scrollController = EditorScrollController(editorState: _editorState);
@@ -166,6 +171,11 @@ class _WysiwygEditorState extends State<WysiwygEditor> {
           editorScrollController: _scrollController,
           editable: true,
           editorStyle: style,
+          // 標準マップに無い 'code' ブロックの描画を追加(コードブロック表示対応)
+          blockComponentBuilders: {
+            ...standardBlockComponentBuilderMap,
+            'code': CodeBlockComponentBuilder(),
+          },
           characterShortcutEvents: [
             _nodeLinkShortcut,
             ...standardCharacterShortcutEvents,
