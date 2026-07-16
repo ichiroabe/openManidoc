@@ -6,20 +6,37 @@ import '../l10n/strings.dart';
 /// ✨ AIアシスタント。本家AIAssistantWindow準拠:
 /// 指示入力+実行 → 左に元テキスト(読み取り専用)、右にAI結果(編集可)。
 /// 「適用」で結果文字列を返す(キャンセルはnull)。
+/// title/promptHint/systemInstruction を指定するとAI子ノード展開等の用途に流用できる
+/// (originalTextが空の場合は元テキスト欄を表示しない)。
 Future<String?> showAiAssistantDialog(
-    BuildContext context, AppState app, String originalText) {
+    BuildContext context, AppState app, String originalText,
+    {String? title, String? promptHint, String? systemInstruction}) {
   return showDialog<String>(
     context: context,
-    builder: (context) =>
-        _AiAssistantDialog(app: app, originalText: originalText),
+    builder: (context) => _AiAssistantDialog(
+      app: app,
+      originalText: originalText,
+      title: title,
+      promptHint: promptHint,
+      systemInstruction: systemInstruction,
+    ),
   );
 }
 
 class _AiAssistantDialog extends StatefulWidget {
   final AppState app;
   final String originalText;
+  final String? title;
+  final String? promptHint;
+  final String? systemInstruction;
 
-  const _AiAssistantDialog({required this.app, required this.originalText});
+  const _AiAssistantDialog({
+    required this.app,
+    required this.originalText,
+    this.title,
+    this.promptHint,
+    this.systemInstruction,
+  });
 
   @override
   State<_AiAssistantDialog> createState() => _AiAssistantDialogState();
@@ -55,9 +72,10 @@ class _AiAssistantDialogState extends State<_AiAssistantDialog> {
           : '${hasText ? 'Apply the instruction to the following text.\n\n--- TEXT ---\n${widget.originalText}\n--- END ---\n\n' : ''}Instruction: $prompt';
       final result = await widget.app.ai.generateText(
         userPrompt,
-        systemInstruction: L.isJa
-            ? 'あなたは操作マニュアル作成を支援するアシスタントです。結果はMarkdown形式の本文のみを返し、前置きや説明は不要です。'
-            : 'You assist with authoring manuals. Return only the Markdown body of the result, with no preamble or explanation.',
+        systemInstruction: widget.systemInstruction ??
+            (L.isJa
+                ? 'あなたは操作マニュアル作成を支援するアシスタントです。結果はMarkdown形式の本文のみを返し、前置きや説明は不要です。'
+                : 'You assist with authoring manuals. Return only the Markdown body of the result, with no preamble or explanation.'),
       );
       setState(() => _resultController.text = result.trim());
     } catch (e) {
@@ -80,7 +98,7 @@ class _AiAssistantDialogState extends State<_AiAssistantDialog> {
           children: [
             Row(
               children: [
-                Text(L.t('ai_assistant'),
+                Text(widget.title ?? L.t('ai_assistant'),
                     style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(width: 16),
                 Chip(
@@ -98,7 +116,7 @@ class _AiAssistantDialogState extends State<_AiAssistantDialog> {
                     controller: _promptController,
                     maxLines: 2,
                     decoration: InputDecoration(
-                      labelText: L.t('aia_prompt_hint'),
+                      labelText: widget.promptHint ?? L.t('aia_prompt_hint'),
                       border: const OutlineInputBorder(),
                       isDense: true,
                     ),
@@ -131,34 +149,36 @@ class _AiAssistantDialogState extends State<_AiAssistantDialog> {
             Expanded(
               child: Row(
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(L.t('original_text')),
-                        const SizedBox(height: 4),
-                        Expanded(
-                          child: TextField(
-                            controller: _originalController,
-                            readOnly: true,
-                            maxLines: null,
-                            expands: true,
-                            textAlignVertical: TextAlignVertical.top,
-                            style: const TextStyle(
-                                fontFamily: 'monospace', fontSize: 13),
-                            decoration: InputDecoration(
-                              border: const OutlineInputBorder(),
-                              fillColor: Theme.of(context)
-                                  .colorScheme
-                                  .surfaceContainerHighest,
-                              filled: true,
+                  if (widget.originalText.isNotEmpty) ...[
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(L.t('original_text')),
+                          const SizedBox(height: 4),
+                          Expanded(
+                            child: TextField(
+                              controller: _originalController,
+                              readOnly: true,
+                              maxLines: null,
+                              expands: true,
+                              textAlignVertical: TextAlignVertical.top,
+                              style: const TextStyle(
+                                  fontFamily: 'monospace', fontSize: 13),
+                              decoration: InputDecoration(
+                                border: const OutlineInputBorder(),
+                                fillColor: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
+                                filled: true,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
+                    const SizedBox(width: 12),
+                  ],
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

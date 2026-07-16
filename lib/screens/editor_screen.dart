@@ -14,6 +14,7 @@ import '../dialogs/ai_assistant_dialog.dart';
 import '../dialogs/expanded_edit_dialog.dart';
 import '../dialogs/image_editor_dialog.dart';
 import '../dialogs/node_picker_dialog.dart';
+import '../dialogs/project_node_picker_dialog.dart';
 import '../dialogs/theme_generator_dialog.dart';
 import '../l10n/strings.dart';
 import '../models/manidoc_node.dart';
@@ -22,6 +23,7 @@ import '../services/html_exporter.dart';
 import '../services/html_import.dart';
 import '../services/link_router.dart';
 import '../services/markdown_io.dart';
+import '../services/node_copy_service.dart';
 import '../widgets/wysiwyg_editor.dart';
 import '../widgets/mindmap_view.dart';
 
@@ -811,6 +813,135 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
+  /// 本家「他のプロジェクトからノードを追加」: 別プロジェクトのノードを
+  /// サブツリーごと複製(画像も取り込み)して選択ノードの子に追加する
+  Future<void> _importFromProject() async {
+    final all = await app.workspace!.loadProjects();
+    final others = all.where((p) => p.id != project.id).toList();
+    if (others.isEmpty) {
+      _snack(L.t('ifp_no_projects'));
+      return;
+    }
+    if (!mounted) return;
+    final picked = await showProjectNodePickerDialog(context, others);
+    if (picked == null) return;
+    try {
+      final copy = await NodeCopyService.copyNodeBetweenProjects(
+          app.workspace!, picked.node, picked.project.id, project.id);
+      setState(() {
+        final sel = _selected;
+        if (sel == null) {
+          project.rootNodes.add(copy);
+        } else {
+          sel.children.add(copy);
+          sel.isExpanded = true;
+        }
+        _dirty = true;
+      });
+      _snack(L.t('ifp_imported', [copy.title]));
+    } catch (e) {
+      _snack(L.t('import_failed', [e]));
+    }
+  }
+
+  /// 本家「✨ AI で子ノードに展開」: AIにMarkdown構成を書かせ、
+  /// 見出し階層をパースして選択ノードの子として追加する
+  Future<void> _aiExpandNode() async {
+    final sel = _selected;
+    if (sel == null) return;
+    final result = await showAiAssistantDialog(
+      context,
+      app,
+      '',
+      title: L.t('ai_expand_node'),
+      promptHint: L.t('ai_expand_hint'),
+      systemInstruction: L.isJa
+          ? 'あなたはプロフェッショナルなテクニカルライターです。\n'
+              'ユーザーの指示に従い、マニュアルや技術ドキュメントの構成をMarkdown形式で作成してください。\n'
+              '【制約事項】\n'
+              '・必ずMarkdown形式（## 見出し、本文）で回答してください。\n'
+              '・「はい、わかりました」等のAI特有の返答は不要です。Markdownのみ出力してください。\n'
+              '・専門用語を正確に使い、分かりやすく簡潔な日本語で書いてください。'
+          : 'You are a professional technical writer.\n'
+              'Create the structure of a manual or technical document in Markdown format according to the user\'s instructions.\n'
+              '[Constraints]\n'
+              '- Always respond in Markdown format (## headings and body text).\n'
+              '- Do not include AI-specific responses such as \'Sure!\' or \'Of course!\'. Output Markdown only.\n'
+              '- Use precise terminology and write in clear, concise English.',
+    );
+    if (result == null) return;
+    // コードフェンス(```markdown)で包まれていたら剥がす(本家準拠)
+    final cleaned = result
+        .replaceFirst(
+            RegExp(r'^```(?:markdown)?\s*\n', caseSensitive: false), '')
+        .replaceFirst(RegExp(r'\n?```\s*$'), '')
+        .trim();
+    if (cleaned.isEmpty) return;
+    final parsed = MarkdownIo.importAsProject(sel.title, cleaned);
+    setState(() {
+      var newChildren = parsed.rootNodes;
+      // 本家準拠: H1が1つだけならタイトルを置き換え、その配下を子として展開
+      final h1Count = RegExp(r'^# ', multiLine: true).allMatches(cleaned).length;
+      if (h1Count == 1 && parsed.rootNodes.length == 1) {
+        final root = parsed.rootNodes.first;
+        if (root.title.isNotEmpty) {
+          sel.title = root.title;
+          _titleController.text = sel.title;
+        }
+        if (root.article.trim().isNotEmpty && sel.article.trim().isEmpty) {
+          sel.article = root.article;
+          _articleVer++;
+        }
+        newChildren = root.children;
+      }
+      for (final child in newChildren) {
+        child.isExpanded = true;
+        sel.children.add(child);
+      }
+      sel.isExpanded = true;
+      _dirty = true;
+    });
+  }
+
+  /// ノード行の右クリックメニュー(本家TreeView ContextMenu準拠)
+  Future<void> _showNodeContextMenu(
+      ManidocNode node, Offset globalPos) async {
+    _select(node);
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final action = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+          globalPos & const Size(1, 1), Offset.zero & overlay.size),
+      items: [
+        PopupMenuItem(value: 'add', child: Text(L.t('add_node'))),
+        PopupMenuItem(value: 'add_child', child: Text(L.t('add_child'))),
+        PopupMenuItem(value: 'delete', child: Text(L.t('delete_node_btn'))),
+        const PopupMenuDivider(),
+        PopupMenuItem(value: 'md', child: Text(L.t('add_from_md'))),
+        PopupMenuItem(
+            value: 'from_project', child: Text(L.t('import_from_project'))),
+        const PopupMenuDivider(),
+        PopupMenuItem(value: 'ai_expand', child: Text(L.t('ai_expand_node'))),
+      ],
+    );
+    if (action == null || !mounted) return;
+    switch (action) {
+      case 'add':
+        _addNode();
+      case 'add_child':
+        _addNode(asChild: true);
+      case 'delete':
+        await _deleteSelected();
+      case 'md':
+        await _importIntoTree('md');
+      case 'from_project':
+        await _importFromProject();
+      case 'ai_expand':
+        await _aiExpandNode();
+    }
+  }
+
   Future<void> _generateAiImage() async {
     final sel = _selected;
     if (sel == null || _generatingImage) return;
@@ -1300,6 +1431,8 @@ class _EditorScreenState extends State<EditorScreen> {
 
     final row = InkWell(
       onTap: () => _select(node),
+      onSecondaryTapDown: (details) =>
+          _showNodeContextMenu(node, details.globalPosition),
       child: Container(
         decoration: BoxDecoration(
           color: selected
