@@ -278,28 +278,33 @@ ${_script()}
 
   // ---------- CSS(本家 GetFormattedCss と互換) ----------
 
-  String _baseCss() {
-    final tocCss = _includeToc ? _tocCss() : '';
-    final ttsCss = _tts ? _ttsCss() : '';
-    return '''
-:root {
-  --main-bg-color: #fcfcfc;
-  --text-main: #1a1a1a;
-  --text-muted: #444;
-  --primary-color: #0056b3;
-  --h1-gradient-start: #0056b3;
-  --h1-gradient-end: #00b4db;
-  --border-color: #eee;
-  --comment-bg: rgba(255, 255, 255, 0.7);
-  --table-header-bg: #f8f9fa;
-  --code-bg: #f1f3f5;
-  --code-color: #e03131;
-  --pre-bg: #1a1a1b;
-  --pre-color: #f8f8f2;
-  --article-font-size: ${_articleSize}px;
-  --comment-font-size: ${_articleSize}px;
-}
-body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif; line-height: 1.6; color: var(--text-main); margin: 0; padding: 0; background-color: var(--main-bg-color); }
+  /// テーマ生成の全15プロパティ(本家Manidoc互換)。既定値はライトテーマ。
+  static const Map<String, String> defaultThemeVars = {
+    '--main-bg-color': '#fcfcfc',
+    '--text-main': '#1a1a1a',
+    '--text-muted': '#444',
+    '--primary-color': '#0056b3',
+    '--h1-gradient-start': '#0056b3',
+    '--h1-gradient-end': '#00b4db',
+    '--border-color': '#eee',
+    '--comment-bg': 'rgba(255, 255, 255, 0.7)',
+    '--table-header-bg': '#f8f9fa',
+    '--code-bg': '#f1f3f5',
+    '--code-color': '#e03131',
+    '--pre-bg': '#1a1a1b',
+    '--pre-color': '#f8f8f2',
+    '--article-font-size': '16px',
+    '--comment-font-size': '16px',
+  };
+
+  static const String _defaultFont =
+      "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif";
+
+  static String _bodyRule(String font) =>
+      "body { font-family: $font; line-height: 1.6; color: var(--text-main); margin: 0; padding: 0; background-color: var(--main-bg-color); }";
+
+  /// body 直後〜.blur までの共通スタイル本体(:root と body 行を除く)。
+  static const String _styleAfterBody = '''
 .content-wrapper { max-width: 960px; margin: 0 auto; padding: 40px 20px; box-sizing: border-box; transition: filter 0.3s; }
 h1 { font-size: 2.8em; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.5em; background: linear-gradient(135deg, var(--h1-gradient-start), var(--h1-gradient-end)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; border-bottom: none; }
 h2 { font-size: 1.8em; font-weight: 700; margin-top: 1.5em; margin-bottom: 0.8em; color: var(--text-main); position: relative; padding-bottom: 8px; border-bottom: 2px solid var(--border-color); }
@@ -330,10 +335,9 @@ pre code { background-color: transparent; padding: 0; color: inherit; font-size:
 .back-link { position: fixed; top: 20px; left: 80px; background: var(--primary-color); color: white !important; padding: 0 20px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px; height: 44px; display: flex; align-items: center; z-index: 1001; box-shadow: 0 4px 15px rgba(0,0,0,0.1); transition: all 0.3s ease; }
 .back-link:hover { filter: brightness(0.9); transform: translateY(-2px); }
 .blur { pointer-events: none; opacity: 0.6; transform: scale(0.98); transition: all 0.4s ease; }
-$tocCss$ttsCss''';
-  }
+''';
 
-  String _tocCss() => '''
+  static const String _tocCssBody = '''
 #sidebar { position: fixed; top: 0; left: -320px; width: 320px; height: 100%; background: #fff; color: #333; transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); overflow-y: auto; z-index: 1000; padding: 30px; box-sizing: border-box; box-shadow: 20px 0 50px rgba(0,0,0,0.05); border-right: 1px solid #eee; }
 #sidebar.open { left: 0; }
 #sidebar h2 { border: none; background: none; color: #111; font-size: 1.4em; margin-top: 10px; padding: 0; border-bottom: none; font-weight: 800; }
@@ -349,12 +353,48 @@ $tocCss$ttsCss''';
 #sidebar-overlay.show { visibility: visible; opacity: 1; }
 ''';
 
-  String _ttsCss() => '''
+  static const String _ttsCssBody = '''
 .tts-btn { background: #f0f4f8; border: none; border-radius: 6px; cursor: pointer; padding: 4px 10px; margin-left: 12px; font-size: 0.75em; transition: all 0.2s; vertical-align: middle; color: var(--primary-color); font-weight: 600; }
 .tts-btn:hover { background: var(--primary-color); color: white; transform: translateY(-1px); }
 .tts-btn.playing { background: #ff9f0a; color: white; animation: pulse 1.5s infinite; }
 @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
 ''';
+
+  /// テーマジェネレータ用: 指定した:root変数から本家Manidoc互換のフルCSS
+  /// (:root + body + 全スタイル + サイドバー/TTS)を生成する。
+  /// これにより openManidoc が保存するテーマも本家と同じ自己完結型CSSになる。
+  static String buildThemeCss(Map<String, String> vars,
+      {String font = _defaultFont}) {
+    final root = StringBuffer()..writeln(':root {');
+    vars.forEach((k, v) => root.writeln('  $k: $v;'));
+    root.writeln('}');
+    return '${root.toString()}${_bodyRule(font)}\n$_styleAfterBody$_tocCssBody$_ttsCssBody';
+  }
+
+  String _baseCss() {
+    final tocCss = _includeToc ? _tocCssBody : '';
+    final ttsCss = _tts ? _ttsCssBody : '';
+    return '''
+:root {
+  --main-bg-color: #fcfcfc;
+  --text-main: #1a1a1a;
+  --text-muted: #444;
+  --primary-color: #0056b3;
+  --h1-gradient-start: #0056b3;
+  --h1-gradient-end: #00b4db;
+  --border-color: #eee;
+  --comment-bg: rgba(255, 255, 255, 0.7);
+  --table-header-bg: #f8f9fa;
+  --code-bg: #f1f3f5;
+  --code-color: #e03131;
+  --pre-bg: #1a1a1b;
+  --pre-color: #f8f8f2;
+  --article-font-size: ${_articleSize}px;
+  --comment-font-size: ${_articleSize}px;
+}
+${_bodyRule(_defaultFont)}
+$_styleAfterBody$tocCss$ttsCss''';
+  }
 
   // ---------- JS(本家互換: サイドバー開閉 + TTS) ----------
 

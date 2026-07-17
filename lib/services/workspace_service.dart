@@ -83,7 +83,7 @@ class WorkspaceService {
     return file.readAsString();
   }
 
-  /// テーマCSSを保存し、ファイル名を返す
+  /// テーマCSSを保存し、ファイル名を返す(同名は上書き=編集)
   Future<String> saveThemeCss(String name, String css) async {
     final dir = Directory(themesDirPath);
     await dir.create(recursive: true);
@@ -92,6 +92,13 @@ class WorkspaceService {
     await File('${dir.path}${Platform.pathSeparator}$fileName')
         .writeAsString(css);
     return fileName;
+  }
+
+  /// テーマCSSファイルを削除する(存在しなければ何もしない)
+  Future<void> deleteThemeCss(String fileName) async {
+    if (fileName.isEmpty) return;
+    final file = File('$themesDirPath${Platform.pathSeparator}$fileName');
+    if (await file.exists()) await file.delete();
   }
 
   /// ワークスペース内の全プロジェクトを読み込む（壊れたJSONはスキップ）
