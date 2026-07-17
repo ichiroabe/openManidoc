@@ -28,6 +28,16 @@ void main() {
     expect(project.rootNodes[2].article, '第2章の本文。');
   });
 
+  test('MD import handles CRLF line endings (Windows files/clipboard)', () {
+    const md = '## 手順1\r\n本文1です。\r\n## 手順2\r\n本文2です。\r\n';
+    final project = MarkdownIo.importAsProject('Doc', md);
+    expect(project.rootNodes.length, 2);
+    expect(project.rootNodes[0].title, '手順1');
+    expect(project.rootNodes[0].article, '本文1です。');
+    expect(project.rootNodes[1].title, '手順2');
+    expect(project.rootNodes[1].article, '本文2です。');
+  });
+
   test('MD import routes blockquotes into the comment field', () {
     const md = '## 章1\n本文です。\n\n> これは注意書き\n> 続き\n';
     final project = MarkdownIo.importAsProject('Doc', md);

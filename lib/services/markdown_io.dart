@@ -7,6 +7,8 @@ import '../models/manidoc_project.dart';
 class MarkdownIo {
   /// 見出し(# ## ###…)の階層でノードツリーを構築してプロジェクト化する
   static ManidocProject importAsProject(String name, String markdown) {
+    // CRLF/CRのままだと行末の\rが見出し正規表現(.*は\rに不マッチ)を全滅させるため正規化
+    markdown = markdown.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     final project = ManidocProject(name: name);
     final headingRe = RegExp(r'^(#{1,6})\s+(.*)$');
     // (level, node) のスタックで親子を辿る
