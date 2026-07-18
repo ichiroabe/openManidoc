@@ -187,9 +187,53 @@ class _AiChatScreenState extends State<AiChatScreen> {
           children: [
             Text(L.t('ai_agent_title')),
             const SizedBox(width: 12),
-            Chip(
-              label: Text(provider == 'None' ? L.t('ai_unset') : provider),
-              visualDensity: VisualDensity.compact,
+            // プロバイダチップ: タップでこの場で切り替え(設定を開かなくてよい)
+            PopupMenuButton<String>(
+              tooltip: L.t('ai_provider'),
+              onSelected: (v) async {
+                app.settings.aiProvider = v;
+                await app.saveSettings();
+                setState(() {});
+              },
+              itemBuilder: (context) => [
+                for (final (value, label, configured) in [
+                  ('Gemini', 'Gemini', app.settings.hasGeminiKey),
+                  ('ChatGPT', 'ChatGPT', app.settings.hasOpenaiKey),
+                  ('Claude', 'Claude', app.settings.hasClaudeKey),
+                  (
+                    'LocalLLM',
+                    L.isJa ? 'ローカルLLM' : 'Local LLM',
+                    app.settings.hasLocalLlm
+                  ),
+                ])
+                  PopupMenuItem(
+                    value: value,
+                    enabled: configured,
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 28,
+                          child: provider == value
+                              ? const Icon(Icons.check, size: 18)
+                              : null,
+                        ),
+                        Text(configured
+                            ? label
+                            : '$label ${L.t('not_configured')}'),
+                      ],
+                    ),
+                  ),
+              ],
+              child: Chip(
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(provider == 'None' ? L.t('ai_unset') : provider),
+                    const Icon(Icons.arrow_drop_down, size: 18),
+                  ],
+                ),
+                visualDensity: VisualDensity.compact,
+              ),
             ),
           ],
         ),

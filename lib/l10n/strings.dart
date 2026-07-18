@@ -267,6 +267,7 @@ class L {
     'ai_import_hint': 'このAIの回答をプロジェクトに取り込めます。',
     'ai_create_project': 'この内容でプロジェクト作成',
     'ai_generated_tag': 'AI生成',
+    'not_configured': '(未設定)',
     'md_mode': 'MDモード',
     'md_mode_tip': 'ONにすると、AIにマニュアル用のMarkdown形式で出力させます(取り込みやすくなります)',
     // AIアシスタントダイアログ
@@ -527,6 +528,7 @@ class L {
     'ai_import_hint': 'You can import this AI reply as a project.',
     'ai_create_project': 'Create project from this',
     'ai_generated_tag': 'AI generated',
+    'not_configured': '(not set)',
     'md_mode': 'MD mode',
     'md_mode_tip': 'When on, asks the AI to output manual-style Markdown (easier to import)',
     'aia_prompt_hint': 'Instruction (e.g. proofread / summarize clearly)',
