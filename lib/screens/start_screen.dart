@@ -311,6 +311,36 @@ class _StartScreenState extends State<StartScreen> {
     if (tag != null) await app.setProjectTag(project, tag);
   }
 
+  Future<void> _renameProject(ManidocProject project) async {
+    final controller = TextEditingController(text: project.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(L.t('menu_rename')),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          onSubmitted: (v) => Navigator.pop(context, v),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(L.t('cancel'))),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              child: Text(L.t('save'))),
+        ],
+      ),
+    );
+    if (name != null && name.trim().isNotEmpty) {
+      await app.renameProject(project, name);
+    }
+  }
+
   Future<void> _exportHtml(ManidocProject project) async {
     final ws = app.workspace!;
     final stamp = DateTime.now()
@@ -716,6 +746,8 @@ class _StartScreenState extends State<StartScreen> {
                       icon: const Icon(Icons.more_horiz, size: 20),
                       onSelected: (value) {
                         switch (value) {
+                          case 'rename':
+                            _renameProject(project);
                           case 'up':
                             app.moveProject(project, -1);
                           case 'down':
@@ -749,6 +781,9 @@ class _StartScreenState extends State<StartScreen> {
                         final htmlCount = manager.countHtml(project);
                         final mdCount = manager.countMd(project);
                         return [
+                          PopupMenuItem(
+                              value: 'rename',
+                              child: Text(L.t('menu_rename'))),
                           PopupMenuItem(value: 'up', child: Text(L.t('menu_up'))),
                           PopupMenuItem(
                               value: 'down', child: Text(L.t('menu_down'))),

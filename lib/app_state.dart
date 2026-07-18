@@ -121,6 +121,16 @@ class AppState extends ChangeNotifier {
   }
 
   /// 生成済みプロジェクト(インポート等)を保存して一覧を更新
+  /// プロジェクト名の変更。IDはUUIDのままなのでデータファイル名・画像フォルダ・
+  /// ノードリンク・MCP参照には影響しない(HTML出力のファイル名だけ次回出力から新名)。
+  Future<void> renameProject(ManidocProject project, String newName) async {
+    final name = newName.trim();
+    if (name.isEmpty || name == project.name) return;
+    project.name = name;
+    await workspace!.saveProject(project);
+    await refreshProjects();
+  }
+
   Future<ManidocProject> addProject(ManidocProject project) async {
     project.sortOrder = projects.length;
     await workspace!.saveProject(project);
