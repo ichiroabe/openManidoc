@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../l10n/strings.dart';
+import 'mcp_config_dialog.dart';
 
 /// ⚙ 設定ダイアログ: 言語・AIプロバイダ（ChatGPT/Claude対応）・並び替え・出力オプション
 Future<void> showSettingsDialog(BuildContext context, AppState app) async {
@@ -38,6 +39,7 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
 
   var language = s.language;
   var provider = s.aiProvider;
+  var useMcp = s.useLocalMcp;
   var sortAxis = s.projectSortAxis;
   var numbering = s.exportHeadingNumbering;
   var tts = s.enableExportTts;
@@ -301,6 +303,24 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                       isDense: true,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  // ローカルMCP: tools非対応モデルではOFFにする(既定OFF)
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(L.t('use_local_mcp')),
+                    subtitle: Text(L.t('use_local_mcp_note'),
+                        style: const TextStyle(fontSize: 12)),
+                    value: useMcp,
+                    onChanged: (v) => setState(() => useMcp = v ?? false),
+                  ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.tune, size: 18),
+                      label: Text(L.t('mcp_config_button')),
+                      onPressed: () => showMcpConfigDialog(context),
+                    ),
+                  ),
                 ] else ...[
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
@@ -444,6 +464,7 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
           : claudeModelController.text.trim()
       ..localLlmEndpoint = endpointController.text.trim()
       ..localLlmModel = localModelController.text.trim()
+      ..useLocalMcp = useMcp
       ..projectSortAxis = sortAxis
       ..exportHeadingNumbering = numbering
       ..enableExportTts = tts

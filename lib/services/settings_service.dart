@@ -16,6 +16,10 @@ class AppSettings {
   String claudeModel;
   String localLlmEndpoint;
   String localLlmModel; // 空ならmodelフィールドを送らない(LM Studio)
+
+  /// ローカルMCPツールを使用する(LocalLLM専用)。
+  /// tools非対応モデルでエラーになるため既定はOFF。
+  bool useLocalMcp;
   String projectSortAxis; // "Manual", "LastModifiedAt", "CreatedAt", "Name"
   bool exportHeadingNumbering;
   bool enableExportTts;
@@ -52,6 +56,7 @@ class AppSettings {
     this.claudeModel = 'claude-sonnet-5',
     this.localLlmEndpoint = 'http://localhost:1234/v1',
     this.localLlmModel = '',
+    this.useLocalMcp = false,
     this.projectSortAxis = 'LastModifiedAt',
     this.exportHeadingNumbering = true,
     this.enableExportTts = false,
@@ -126,6 +131,7 @@ class AppSettings {
         localLlmEndpoint:
             json['localLlmEndpoint'] as String? ?? 'http://localhost:1234/v1',
         localLlmModel: json['localLlmModel'] as String? ?? '',
+        useLocalMcp: json['useLocalMcp'] as bool? ?? false,
         projectSortAxis: json['projectSortAxis'] as String? ?? 'LastModifiedAt',
         exportHeadingNumbering: json['exportHeadingNumbering'] as bool? ?? true,
         enableExportTts: json['enableExportTts'] as bool? ?? false,
@@ -153,6 +159,7 @@ class AppSettings {
         'claudeModel': claudeModel,
         'localLlmEndpoint': localLlmEndpoint,
         'localLlmModel': localLlmModel,
+        'useLocalMcp': useLocalMcp,
         'projectSortAxis': projectSortAxis,
         'exportHeadingNumbering': exportHeadingNumbering,
         'enableExportTts': enableExportTts,

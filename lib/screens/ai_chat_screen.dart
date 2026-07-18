@@ -28,6 +28,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
   bool _webSearch = false;
   bool _mdMode = false;
   String? _lastAssistant; // 直近のAI回答(取り込み対象)
+  String? _toolStatus; // MCPツール実行中の進捗表示
 
   AppState get app => widget.appState;
 
@@ -78,6 +79,9 @@ class _AiChatScreenState extends State<AiChatScreen> {
         _history,
         systemInstruction: _systemPrompt,
         useGrounding: _webSearch && app.ai.supportsWebSearch,
+        onToolCall: (name) {
+          if (mounted) setState(() => _toolStatus = name);
+        },
       );
       setState(() {
         _history.add(('assistant', reply.trim()));
@@ -86,7 +90,10 @@ class _AiChatScreenState extends State<AiChatScreen> {
     } catch (e) {
       setState(() => _history.add(('assistant', '⚠ $e')));
     } finally {
-      setState(() => _running = false);
+      setState(() {
+        _running = false;
+        _toolStatus = null;
+      });
       _scrollToEnd();
     }
   }
@@ -134,6 +141,8 @@ class _AiChatScreenState extends State<AiChatScreen> {
         ? content.replaceRange(h1.start, h1.end, '').trimLeft()
         : content;
     final project = MarkdownIo.importAsProject(name, body);
+    // AI由来であることをタグで明示(検索での除外・一覧の識別に使える)
+    if (project.tag.isEmpty) project.tag = L.t('ai_generated_tag');
     final saved = await app.addProject(project);
     if (!mounted) return;
     _snack(L.t('imported', [saved.name]));
@@ -270,6 +279,17 @@ class _AiChatScreenState extends State<AiChatScreen> {
                   ),
           ),
           if (_running) const LinearProgressIndicator(),
+          // MCPツール実行中はツール名を表示(何をしているか見えるように)
+          if (_running && _toolStatus != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                '🔧 ${L.t('ai_tool_running', [_toolStatus!])}',
+                style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.outline),
+              ),
+            ),
           // AI回答があればいつでも「プロジェクトに取り込む」バナーを表示
           if (_lastAssistant != null && !_running)
             Container(
