@@ -67,6 +67,11 @@ class _EditorScreenState extends State<EditorScreen> {
   // テーマCSSの Web 全体背景色 / 本文色(リアルタイムプレビューへ反映)
   Color? _bgColor;
   Color? _textColor;
+  // テーマCSSのコードブロック/インラインコード色(プレビューへ反映)
+  Color? _preBg;   // --pre-bg
+  Color? _preFg;   // --pre-color
+  Color? _codeBg;  // --code-bg
+  Color? _codeFg;  // --code-color
   // 画像枠にファイルをドラッグ中か(ハイライト表示用)
   bool _imageDragOver = false;
   // 画像枠のフォーカス(ここにフォーカス時のみ ⌘/Ctrl+V を画像貼り付けに使う)
@@ -123,13 +128,7 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Future<void> _updateThemeColor() async {
     if (project.themeCssFileName.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _accentColor = null;
-          _bgColor = null;
-          _textColor = null;
-        });
-      }
+      if (mounted) setState(_resetThemeColors);
       return;
     }
     try {
@@ -138,23 +137,35 @@ class _EditorScreenState extends State<EditorScreen> {
         final accent = _cssColor(css, '--primary-color');
         final bg = _cssColor(css, '--main-bg-color');
         final text = _cssColor(css, '--text-main');
+        final preBg = _cssColor(css, '--pre-bg');
+        final preFg = _cssColor(css, '--pre-color');
+        final codeBg = _cssColor(css, '--code-bg');
+        final codeFg = _cssColor(css, '--code-color');
         if (mounted) {
           setState(() {
             _accentColor = accent;
             _bgColor = bg;
             _textColor = text;
+            _preBg = preBg;
+            _preFg = preFg;
+            _codeBg = codeBg;
+            _codeFg = codeFg;
           });
         }
         return;
       }
     } catch (_) {}
-    if (mounted) {
-      setState(() {
-        _accentColor = null;
-        _bgColor = null;
-        _textColor = null;
-      });
-    }
+    if (mounted) setState(_resetThemeColors);
+  }
+
+  void _resetThemeColors() {
+    _accentColor = null;
+    _bgColor = null;
+    _textColor = null;
+    _preBg = null;
+    _preFg = null;
+    _codeBg = null;
+    _codeFg = null;
   }
 
   /// テーマCSSから指定変数の16進カラーを取り出す(見つからなければ null)
@@ -1836,6 +1847,20 @@ class _EditorScreenState extends State<EditorScreen> {
         : Theme.of(context).brightness == Brightness.dark;
     final accentColor = _accentColor ?? Theme.of(context).colorScheme.primary;
     // リンク(#node:id / 外部URL)をタップで処理できるよう LinkConfig を差し込む
+    // コードブロック: テーマCSSの --pre-bg / --pre-color を反映する。
+    // 背景の明度で構文ハイライトテーマ(明/暗)を選び、CSSと同じ配色に寄せる。
+    final preIsDark =
+        _preBg != null ? _preBg!.computeLuminance() < 0.5 : isDark;
+    final basePre = preIsDark ? PreConfig.darkConfig : const PreConfig();
+    final preConfig = basePre.copy(
+      decoration: BoxDecoration(
+        color: _preBg ?? (preIsDark ? const Color(0xFF1E293B) : null),
+        borderRadius: const BorderRadius.all(Radius.circular(8)),
+      ),
+      textStyle: TextStyle(color: _preFg, fontSize: 14),
+      styleNotMatched: _preFg != null ? TextStyle(color: _preFg) : null,
+    );
+
     final config =
         (isDark ? MarkdownConfig.darkConfig : MarkdownConfig.defaultConfig)
             .copy(configs: [
@@ -1848,6 +1873,14 @@ class _EditorScreenState extends State<EditorScreen> {
       ),
       if (_textColor != null)
         PConfig(textStyle: TextStyle(color: _textColor, fontSize: 16)),
+      preConfig,
+      if (_codeBg != null || _codeFg != null)
+        CodeConfig(
+          style: TextStyle(
+            backgroundColor: _codeBg,
+            color: _codeFg,
+          ),
+        ),
     ]);
 
     // 深さ優先で表示順の平坦リストを作る(スクロール同期のインデックスに使う)
