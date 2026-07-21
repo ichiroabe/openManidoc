@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../l10n/strings.dart';
+import '../services/ai_service.dart';
 import 'mcp_config_dialog.dart';
 
 /// ⚙ 設定ダイアログ: 言語・AIプロバイダ（ChatGPT/Claude対応）・並び替え・出力オプション
@@ -54,6 +55,35 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
       openaiModels.contains(s.openaiModel) ? s.openaiModel : 'custom';
   var selectedClaudeModel =
       claudeModels.contains(s.claudeModel) ? s.claudeModel : 'custom';
+
+  // ローカルLLM: 🔄ボタンでサーバーから取得したモデル一覧(取得前は手入力)
+  var localModels = <String>[];
+  var selectedLocalModel = 'custom';
+  var loadingLocalModels = false;
+  String? localModelsError;
+
+  // 🔄ボタン: 入力中のエンドポイントへ問い合わせてモデル一覧を取り直す
+  Future<void> fetchLocalModels(
+      BuildContext context, StateSetter setState) async {
+    setState(() {
+      loadingLocalModels = true;
+      localModelsError = null;
+    });
+    try {
+      final models = await AiService.listLocalModels(endpointController.text);
+      if (!context.mounted) return;
+      final current = localModelController.text.trim();
+      setState(() {
+        localModels = models;
+        selectedLocalModel = models.contains(current) ? current : 'custom';
+      });
+    } catch (e) {
+      if (!context.mounted) return;
+      setState(() => localModelsError = '$e');
+    } finally {
+      if (context.mounted) setState(() => loadingLocalModels = false);
+    }
+  }
 
   void launchBrowser(String url) {
     if (Platform.isWindows) {
@@ -293,16 +323,104 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                       border: const OutlineInputBorder(),
                       isDense: true,
                     ),
+                    // 接続先が変わったら取得済み一覧は当てにならないので破棄
+                    onChanged: (_) {
+                      if (localModels.isEmpty && localModelsError == null) {
+                        return;
+                      }
+                      setState(() {
+                        localModels = [];
+                        selectedLocalModel = 'custom';
+                        localModelsError = null;
+                      });
+                    },
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: localModelController,
-                    decoration: InputDecoration(
-                      labelText: L.t('local_llm_model'),
-                      border: const OutlineInputBorder(),
-                      isDense: true,
-                    ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: localModels.isEmpty
+                            ? TextField(
+                                controller: localModelController,
+                                decoration: InputDecoration(
+                                  labelText: L.t('local_llm_model'),
+                                  border: const OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                              )
+                            : KeyedSubtree(
+                                // 一覧が入れ替わったら選択状態を作り直す
+                                // (FormFieldはinitialValueの変化を反映しないため)
+                                key: ValueKey(localModels.join(',')),
+                                child: DropdownButtonFormField<String>(
+                                  key: const Key('local_model_dropdown'),
+                                  initialValue: selectedLocalModel,
+                                  isExpanded: true,
+                                  decoration: InputDecoration(
+                                    labelText: L.t('local_llm_model'),
+                                    border: const OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                  items: [
+                                    ...localModels.map((m) => DropdownMenuItem(
+                                        value: m, child: Text(m))),
+                                    DropdownMenuItem(
+                                      value: 'custom',
+                                      child: Text(
+                                          L.isJa ? 'カスタム (手入力)' : 'Custom'),
+                                    ),
+                                  ],
+                                  onChanged: (v) => setState(() {
+                                    selectedLocalModel = v!;
+                                    if (v != 'custom') {
+                                      localModelController.text = v;
+                                    }
+                                  }),
+                                ),
+                              ),
+                      ),
+                      const SizedBox(width: 8),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: loadingLocalModels
+                            ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : IconButton(
+                                icon: const Icon(Icons.refresh),
+                                tooltip: L.isJa
+                                    ? 'サーバーからモデル一覧を取得'
+                                    : 'Fetch model list from server',
+                                onPressed: () =>
+                                    fetchLocalModels(context, setState),
+                              ),
+                      ),
+                    ],
                   ),
+                  if (localModels.isNotEmpty &&
+                      selectedLocalModel == 'custom') ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: localModelController,
+                      decoration: InputDecoration(
+                        labelText: L.t('local_llm_model'),
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                  ],
+                  if (localModelsError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      localModelsError!,
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.error),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   // ローカルMCP: tools非対応モデルではOFFにする(既定OFF)
                   CheckboxListTile(

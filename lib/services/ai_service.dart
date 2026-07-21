@@ -210,6 +210,72 @@ class AiService {
   static const _mcpMaxLoops = 8; // ツール呼び出しの最大ラウンド数
   static const _mcpResultCap = 6000; // ツール結果をLLMへ渡す際の上限文字数
 
+  static const _listModelsTimeout = Duration(seconds: 10);
+
+  /// ローカルLLMサーバーが持っているモデル名の一覧を取得する。
+  /// OpenAI互換の `{endpoint}/models` を先に試し、返らなければ
+  /// Ollamaのタグ一覧 `{host}/api/tags` にフォールバックする。
+  static Future<List<String>> listLocalModels(String endpoint) async {
+    final base = endpoint.trim().replaceAll(RegExp(r'/+$'), '');
+    if (base.isEmpty) {
+      throw AiException('エンドポイントURLを入力してください。');
+    }
+    final names = <String>[];
+    Object? lastError;
+
+    // 1) OpenAI互換 (LM Studio / Ollamaの/v1) : data[].id
+    try {
+      final response =
+          await http.get(Uri.parse('$base/models')).timeout(_listModelsTimeout);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(utf8.decode(response.bodyBytes));
+        final data = json is Map<String, dynamic> ? json['data'] : null;
+        if (data is List) {
+          for (final item in data) {
+            final id = item is Map<String, dynamic> ? item['id'] : null;
+            if (id is String && id.isNotEmpty) names.add(id);
+          }
+        }
+      } else {
+        lastError = 'HTTP ${response.statusCode}';
+      }
+    } catch (e) {
+      lastError = e;
+    }
+
+    // 2) Ollamaのタグ一覧 : models[].name (エンドポイント末尾の/v1は落とす)
+    if (names.isEmpty) {
+      final host = base.replaceAll(RegExp(r'/v\d+$'), '');
+      try {
+        final response = await http
+            .get(Uri.parse('$host/api/tags'))
+            .timeout(_listModelsTimeout);
+        if (response.statusCode == 200) {
+          final json = jsonDecode(utf8.decode(response.bodyBytes));
+          final models = json is Map<String, dynamic> ? json['models'] : null;
+          if (models is List) {
+            for (final item in models) {
+              final name = item is Map<String, dynamic> ? item['name'] : null;
+              if (name is String && name.isNotEmpty) names.add(name);
+            }
+          }
+        } else {
+          lastError = 'HTTP ${response.statusCode}';
+        }
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    if (names.isEmpty) {
+      throw AiException('モデル一覧を取得できませんでした。'
+          'LM Studio / Ollama が起動しているか、エンドポイントURL($base)が'
+          '正しいか確認してください。${lastError == null ? '' : '\n$lastError'}');
+    }
+    names.sort();
+    return names;
+  }
+
   /// OpenAI互換 /chat/completions への1リクエスト(生のレスポンスJSONを返す)
   Future<Map<String, dynamic>> _localLlmRequest(
       List<Map<String, dynamic>> messages,
