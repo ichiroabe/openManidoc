@@ -209,7 +209,7 @@ class McpClient {
       'jsonrpc': '2.0',
       'id': id,
       'method': method,
-      if (params != null) 'params': params
+      'params': ?params
     });
     final msg = await completer.future.timeout(const Duration(seconds: 60),
         onTimeout: () => throw TimeoutException(
