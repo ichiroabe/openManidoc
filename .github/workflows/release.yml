@@ -28,6 +28,9 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Run Static Analysis
+        run: flutter analyze
+
       - name: Build Windows
         run: flutter build windows --release
 
@@ -61,6 +64,9 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Run Static Analysis
+        run: flutter analyze
 
       - name: Build macOS
         run: flutter build macos --release
@@ -99,6 +105,9 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Run Static Analysis
+        run: flutter analyze
 
       - name: Build Linux
         run: flutter build linux --release
