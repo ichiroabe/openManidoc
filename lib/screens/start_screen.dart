@@ -16,6 +16,7 @@ import '../services/html_exporter.dart';
 import '../services/html_import.dart';
 import '../services/markdown_io.dart';
 import '../services/portal_exporter.dart';
+import '../widgets/immersive_project_view.dart';
 import 'ai_chat_screen.dart';
 import 'editor_screen.dart';
 
@@ -410,7 +411,13 @@ class _StartScreenState extends State<StartScreen> {
           children: [
             _buildTopBar(context),
             Expanded(
-              child: SingleChildScrollView(
+              child: app.settings.immersiveProjectView && app.workspace != null
+                  ? ImmersiveProjectView(
+                      app: app,
+                      projects: app.projects,
+                      onOpen: _openProject,
+                    )
+                  : SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 32),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -467,6 +474,19 @@ class _StartScreenState extends State<StartScreen> {
             onPressed: _pickWorkspace,
             icon: const Icon(Icons.folder_open, size: 18),
             label: Text(L.t('browse_folder')),
+          ),
+          IconButton(
+            tooltip: app.settings.immersiveProjectView
+                ? L.t('grid_view')
+                : L.t('immersive_view'),
+            icon: Icon(app.settings.immersiveProjectView
+                ? Icons.grid_view
+                : Icons.threesixty),
+            onPressed: () {
+              setState(() => app.settings.immersiveProjectView =
+                  !app.settings.immersiveProjectView);
+              app.saveSettings();
+            },
           ),
           IconButton(
             tooltip: L.t('settings'),

@@ -21,6 +21,14 @@ class AppSettings {
   /// tools非対応モデルでエラーになるため既定はOFF。
   bool useLocalMcp;
   String projectSortAxis; // "Manual", "LastModifiedAt", "CreatedAt", "Name"
+
+  /// プロジェクト選択画面を「没入ビュー」(球状の本棚)で表示する。
+  bool immersiveProjectView;
+
+  /// VOICEVOX ENGINE の接続先(別途起動しておく)。
+  String voicevoxEndpoint;
+  int voicevoxSpeaker; // 話者ID(/speakers で確認)
+  double voicevoxSpeed; // 話速
   bool exportHeadingNumbering;
   bool enableExportTts;
   double exportTtsSpeed;
@@ -58,6 +66,10 @@ class AppSettings {
     this.localLlmModel = '',
     this.useLocalMcp = false,
     this.projectSortAxis = 'LastModifiedAt',
+    this.immersiveProjectView = false,
+    this.voicevoxEndpoint = 'http://127.0.0.1:50021',
+    this.voicevoxSpeaker = 3,
+    this.voicevoxSpeed = 1.0,
     this.exportHeadingNumbering = true,
     this.enableExportTts = false,
     this.exportTtsSpeed = 1.0,
@@ -133,6 +145,11 @@ class AppSettings {
         localLlmModel: json['localLlmModel'] as String? ?? '',
         useLocalMcp: json['useLocalMcp'] as bool? ?? false,
         projectSortAxis: json['projectSortAxis'] as String? ?? 'LastModifiedAt',
+        immersiveProjectView: json['immersiveProjectView'] as bool? ?? false,
+        voicevoxEndpoint: json['voicevoxEndpoint'] as String? ??
+            'http://127.0.0.1:50021',
+        voicevoxSpeaker: (json['voicevoxSpeaker'] as num?)?.toInt() ?? 3,
+        voicevoxSpeed: (json['voicevoxSpeed'] as num?)?.toDouble() ?? 1.0,
         exportHeadingNumbering: json['exportHeadingNumbering'] as bool? ?? true,
         enableExportTts: json['enableExportTts'] as bool? ?? false,
         exportTtsSpeed: (json['exportTtsSpeed'] as num?)?.toDouble() ?? 1.0,
@@ -161,6 +178,10 @@ class AppSettings {
         'localLlmModel': localLlmModel,
         'useLocalMcp': useLocalMcp,
         'projectSortAxis': projectSortAxis,
+        'immersiveProjectView': immersiveProjectView,
+        'voicevoxEndpoint': voicevoxEndpoint,
+        'voicevoxSpeaker': voicevoxSpeaker,
+        'voicevoxSpeed': voicevoxSpeed,
         'exportHeadingNumbering': exportHeadingNumbering,
         'enableExportTts': enableExportTts,
         'exportTtsSpeed': exportTtsSpeed,

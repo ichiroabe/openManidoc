@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../l10n/strings.dart';
 import '../services/ai_service.dart';
+import '../services/voicevox_service.dart';
 import 'mcp_config_dialog.dart';
 
 /// ⚙ 設定ダイアログ: 言語・AIプロバイダ（ChatGPT/Claude対応）・並び替え・出力オプション
@@ -17,6 +18,10 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
   final claudeModelController = TextEditingController(text: s.claudeModel);
   final endpointController = TextEditingController(text: s.localLlmEndpoint);
   final localModelController = TextEditingController(text: s.localLlmModel);
+  final voicevoxEndpointController =
+      TextEditingController(text: s.voicevoxEndpoint);
+  final voicevoxSpeakerController =
+      TextEditingController(text: '${s.voicevoxSpeaker}');
 
   const geminiModels = [
     'gemini-2.5-flash',
@@ -62,6 +67,13 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
   var loadingLocalModels = false;
   String? localModelsError;
 
+  // VOICEVOX: 🔄で /speakers を取得(接続テストも兼ねる)
+  var voicevoxSpeaker = s.voicevoxSpeaker;
+  var voicevoxSpeed = s.voicevoxSpeed;
+  var vvSpeakers = <({String name, int id})>[];
+  var loadingVv = false;
+  String? vvStatus;
+
   // 🔄ボタン: 入力中のエンドポイントへ問い合わせてモデル一覧を取り直す
   Future<void> fetchLocalModels(
       BuildContext context, StateSetter setState) async {
@@ -88,6 +100,37 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
   void launchBrowser(String url) {
     if (Platform.isWindows) {
       Process.run('explorer.exe', [url]);
+    }
+  }
+
+  // 🔄ボタン: 入力中のエンドポイントに疎通確認し、話者一覧を取得
+  Future<void> fetchVoicevox(
+      BuildContext context, StateSetter setState) async {
+    setState(() {
+      loadingVv = true;
+      vvStatus = null;
+    });
+    try {
+      final svc = VoicevoxService(voicevoxEndpointController.text.trim());
+      if (!await svc.isAvailable()) {
+        if (context.mounted) {
+          setState(() {
+            vvSpeakers = [];
+            vvStatus = L.t('vv_test_fail');
+          });
+        }
+        return;
+      }
+      final sp = await svc.speakers();
+      if (!context.mounted) return;
+      setState(() {
+        vvSpeakers = sp;
+        vvStatus = L.t('vv_test_ok', [sp.length]);
+      });
+    } catch (e) {
+      if (context.mounted) setState(() => vvStatus = '$e');
+    } finally {
+      if (context.mounted) setState(() => loadingVv = false);
     }
   }
 
@@ -548,6 +591,103 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                     ),
                   ],
                 ),
+
+                const Divider(height: 32),
+                Text(L.t('vv_section'),
+                    style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: voicevoxEndpointController,
+                  decoration: InputDecoration(
+                    labelText: L.t('vv_endpoint'),
+                    hintText: 'http://127.0.0.1:50021',
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  // 接続先が変わったら取得済み話者一覧は破棄
+                  onChanged: (_) {
+                    if (vvSpeakers.isEmpty && vvStatus == null) return;
+                    setState(() {
+                      vvSpeakers = [];
+                      vvStatus = null;
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: vvSpeakers.isEmpty
+                          ? TextField(
+                              controller: voicevoxSpeakerController,
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                labelText: L.t('vv_speaker_id'),
+                                border: const OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            )
+                          : KeyedSubtree(
+                              key: ValueKey(vvSpeakers.map((e) => e.id).join(',')),
+                              child: DropdownButtonFormField<int>(
+                                initialValue:
+                                    vvSpeakers.any((e) => e.id == voicevoxSpeaker)
+                                        ? voicevoxSpeaker
+                                        : vvSpeakers.first.id,
+                                isExpanded: true,
+                                decoration: InputDecoration(
+                                  labelText: L.t('vv_speaker'),
+                                  border: const OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                                items: vvSpeakers
+                                    .map((e) => DropdownMenuItem(
+                                        value: e.id, child: Text(e.name)))
+                                    .toList(),
+                                onChanged: (v) =>
+                                    setState(() => voicevoxSpeaker = v!),
+                              ),
+                            ),
+                    ),
+                    const SizedBox(width: 8),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: loadingVv
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : IconButton(
+                              icon: const Icon(Icons.wifi_tethering),
+                              tooltip: L.t('vv_fetch'),
+                              onPressed: () => fetchVoicevox(context, setState),
+                            ),
+                    ),
+                  ],
+                ),
+                if (vvStatus != null) ...[
+                  const SizedBox(height: 6),
+                  Text(vvStatus!, style: const TextStyle(fontSize: 12)),
+                ],
+                Row(
+                  children: [
+                    Text(L.t('speed')),
+                    Expanded(
+                      child: Slider(
+                        value: voicevoxSpeed,
+                        min: 0.5,
+                        max: 2.0,
+                        divisions: 15,
+                        label: 'x${voicevoxSpeed.toStringAsFixed(1)}',
+                        onChanged: (v) => setState(() => voicevoxSpeed = v),
+                      ),
+                    ),
+                    Text('x${voicevoxSpeed.toStringAsFixed(1)}'),
+                  ],
+                ),
               ],
             ),
           ),
@@ -582,6 +722,14 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
           : claudeModelController.text.trim()
       ..localLlmEndpoint = endpointController.text.trim()
       ..localLlmModel = localModelController.text.trim()
+      ..voicevoxEndpoint = voicevoxEndpointController.text.trim().isEmpty
+          ? 'http://127.0.0.1:50021'
+          : voicevoxEndpointController.text.trim()
+      ..voicevoxSpeaker = vvSpeakers.isNotEmpty
+          ? voicevoxSpeaker
+          : (int.tryParse(voicevoxSpeakerController.text.trim()) ??
+              s.voicevoxSpeaker)
+      ..voicevoxSpeed = double.parse(voicevoxSpeed.toStringAsFixed(1))
       ..useLocalMcp = useMcp
       ..projectSortAxis = sortAxis
       ..exportHeadingNumbering = numbering
