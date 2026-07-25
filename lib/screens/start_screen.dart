@@ -416,6 +416,8 @@ class _StartScreenState extends State<StartScreen> {
                       app: app,
                       projects: app.projects,
                       onOpen: _openProject,
+                      onOpenNode: (p, nodeId) =>
+                          _openProject(p, nodeId: nodeId),
                     )
                   : SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 32),
