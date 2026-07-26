@@ -171,6 +171,9 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
       final wav = await svc.synthesize(text, s.voicevoxSpeaker,
           speed: s.voicevoxSpeed);
       final dir = await getTemporaryDirectory();
+      // 非サンドボックスの macOS では ~/Library/Caches/<bundle_id> が
+      // 自動生成されず書き込みが PathNotFound で失敗する。事前に作成する。
+      await dir.create(recursive: true);
       final f = File('${dir.path}${Platform.pathSeparator}'
           'vv_${DateTime.now().microsecondsSinceEpoch}.wav');
       await f.writeAsBytes(wav);
