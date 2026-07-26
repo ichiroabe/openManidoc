@@ -639,7 +639,7 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
               border: Border.all(color: Colors.white24),
               boxShadow: [
                 BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
+                    color: Colors.black.withValues(alpha: 0.5),
                     blurRadius: 18,
                     offset: const Offset(0, 8)),
               ],
@@ -803,7 +803,7 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
     }
     return Positioned.fill(
       child: Container(
-        color: Colors.black.withOpacity(0.82),
+        color: Colors.black.withValues(alpha: 0.82),
         alignment: Alignment.center,
         padding: const EdgeInsets.all(24),
         child: body,
@@ -818,7 +818,7 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      color: Colors.black.withOpacity(0.28),
+      color: Colors.black.withValues(alpha: 0.28),
       child: Wrap(
         spacing: 16,
         runSpacing: 8,
@@ -881,7 +881,7 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
           prefixIconConstraints:
               const BoxConstraints(minWidth: 28, minHeight: 28),
           filled: true,
-          fillColor: Colors.white.withOpacity(0.08),
+          fillColor: Colors.white.withValues(alpha: 0.08),
           contentPadding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
