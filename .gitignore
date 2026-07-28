@@ -4,7 +4,9 @@
 *.local.json
 secrets.json
 secrets/
-.claude/
+.claude/*
+!.claude/commands/
+.claude/commands/*.local.md
 
 # Miscellaneous
 *.class
