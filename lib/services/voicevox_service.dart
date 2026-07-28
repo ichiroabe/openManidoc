@@ -56,6 +56,28 @@ class VoicevoxService {
     }
   }
 
+  /// 話者(スタイル)のモデルを事前ロードする。初回合成の遅延を再生の裏で
+  /// 吸収するために使う。既にロード済みなら即返る。失敗は握りつぶす。
+  Future<void> initializeSpeaker(int speaker) async {
+    try {
+      // 既にロード済みなら重い初期化を避ける
+      final chk = await http
+          .get(_u('/is_initialized_speaker', {'speaker': '$speaker'}))
+          .timeout(const Duration(seconds: 5));
+      if (chk.statusCode == 200 &&
+          utf8.decode(chk.bodyBytes).trim() == 'true') {
+        return;
+      }
+    } catch (_) {
+      // /is_initialized_speaker 非対応エンジンでも initialize は試す
+    }
+    try {
+      await http
+          .post(_u('/initialize_speaker', {'speaker': '$speaker'}))
+          .timeout(const Duration(seconds: 60));
+    } catch (_) {}
+  }
+
   /// テキストを合成してWAVバイト列を返す。失敗時は例外。
   Future<Uint8List> synthesize(String text, int speaker,
       {double speed = 1.0}) async {

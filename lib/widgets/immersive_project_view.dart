@@ -84,7 +84,7 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
   List<ManidocNode> _readNodes = []; // プロジェクトの全ノード(輪表示用)
   ManidocProject? _readProject;
   String? _readMessage; // 未起動/エラー等の通知(読み上げ中でない時に表示)
-  String? _readSpeakerName; // クレジット表示用の話者(キャラ)名
+  Map<int, String> _speakerNames = {}; // 話者ID→キャラ名(クレジット表示用)
   String? _curPath;   // active が再生中のファイル
   String? _nextPath;  // inactive に setSource 済みの次ファイル
   int _nextIndex = -1; // _nextPath が対応するチャンク番号
@@ -133,7 +133,8 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
 
   // ---------------- 読み上げ(VOICEVOX) ----------------
 
-  // ノード1件の読み上げテキスト(タイトル＋本文＋コメント)
+  // ノード1件の読み上げテキスト(タイトル＋本文＋コメント)。
+  // 「読む本文があるか」の判定用。実際の合成は _nodeSegments で話者別に行う。
   String _nodeText(ManidocNode n) {
     final parts = <String>[];
     if (n.title.trim().isNotEmpty) parts.add(n.title.trim());
@@ -142,6 +143,26 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
     final comment = markdownToPlain(n.comment);
     if (comment.isNotEmpty) parts.add(comment);
     return parts.join('。 ');
+  }
+
+  // ノードを (テキスト, 話者ID) のセグメントに分解する。
+  // 話者はノードの題名/記事/コメント個別設定を優先し、未設定は設定値にフォロー。
+  List<({String text, int speaker})> _nodeSegments(ManidocNode n) {
+    final def = widget.app.settings.voicevoxSpeaker;
+    final out = <({String text, int speaker})>[];
+    final title = n.title.trim();
+    if (title.isNotEmpty) {
+      out.add((text: title, speaker: n.titleSpeaker ?? def));
+    }
+    final body = markdownToPlain(n.article);
+    if (body.isNotEmpty) {
+      out.add((text: body, speaker: n.articleSpeaker ?? def));
+    }
+    final comment = markdownToPlain(n.comment);
+    if (comment.isNotEmpty) {
+      out.add((text: comment, speaker: n.commentSpeaker ?? def));
+    }
+    return out;
   }
 
   // 本文を文単位のチャンクに分割(短すぎる断片は結合)。末尾詰まり対策。
@@ -164,11 +185,12 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
   }
 
   // 1チャンクを合成して一時WAVに書き出しパスを返す(失敗時null)。
-  Future<String?> _synthToFile(String text) async {
+  // speaker はチャンクごと(題名/記事/コメントの設定)に解決済みの話者ID。
+  Future<String?> _synthToFile(String text, int speaker) async {
     final s = widget.app.settings;
     final svc = VoicevoxService(s.voicevoxEndpoint);
     try {
-      final wav = await svc.synthesize(text, s.voicevoxSpeaker,
+      final wav = await svc.synthesize(s.applyReadingDict(text), speaker,
           speed: s.voicevoxSpeed);
       final dir = await getTemporaryDirectory();
       // 非サンドボックスの macOS では ~/Library/Caches/<bundle_id> が
@@ -219,15 +241,14 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
       if (mounted) setState(() => _readMessage = L.t('vv_unavailable'));
       return;
     }
-    // クレジット用に話者(キャラ)名を解決(best-effort)
+    // クレジット用に話者ID→キャラ名の対応を用意(best-effort)
     try {
       final sp = await svc.speakers();
-      final match =
-          sp.where((e) => e.id == widget.app.settings.voicevoxSpeaker);
-      _readSpeakerName =
-          match.isNotEmpty ? match.first.name.split(' / ').first : null;
+      _speakerNames = {
+        for (final e in sp) e.id: e.name.split(' / ').first,
+      };
     } catch (_) {
-      _readSpeakerName = null;
+      _speakerNames = {};
     }
     final nodes = <ManidocNode>[];
     void walk(List<ManidocNode> ns) {
@@ -242,10 +263,13 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
       if (mounted) setState(() => _readMessage = L.t('vv_no_text'));
       return;
     }
+    // 題名/記事/コメントを話者別セグメントに分け、文単位のチャンクへ。
     final chunks = <_Chunk>[];
     for (var ni = 0; ni < nodes.length; ni++) {
-      for (final s in _sentences(_nodeText(nodes[ni]))) {
-        chunks.add(_Chunk(nodes[ni], ni, nodes.length, s));
+      for (final seg in _nodeSegments(nodes[ni])) {
+        for (final s in _sentences(seg.text)) {
+          chunks.add(_Chunk(nodes[ni], ni, nodes.length, s, seg.speaker));
+        }
       }
     }
     setState(() {
@@ -260,12 +284,30 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
       _nextPath = null;
       _nextIndex = -1;
     });
+    // 先頭話者は _playFirst の合成で温まる。残りの話者は再生の裏で
+    // 逐次ウォームアップし、各キャラ初出の引っかかりを抑える(並列にすると
+    // VOICEVOXはCPUバウンドで再生中の音切れを招くため、あえて逐次)。
+    unawaited(_warmUpSpeakers(chunks));
     _playFirst();
+  }
+
+  // チャンク出現順で重複を除いた話者を、先頭以外バックグラウンドで温める。
+  Future<void> _warmUpSpeakers(List<_Chunk> chunks) async {
+    final ordered = <int>[];
+    for (final c in chunks) {
+      if (!ordered.contains(c.speaker)) ordered.add(c.speaker);
+    }
+    final svc = VoicevoxService(widget.app.settings.voicevoxEndpoint);
+    // ordered[0] は先頭チャンクの話者 = _playFirst が待って温めるので飛ばす
+    for (var i = 1; i < ordered.length; i++) {
+      if (!_reading || !mounted) return; // 停止したら中断
+      await svc.initializeSpeaker(ordered[i]);
+    }
   }
 
   // 最初のチャンクを active で再生し、次を inactive へ先読みロード
   Future<void> _playFirst() async {
-    final path = await _synthToFile(_chunks[0].text);
+    final path = await _synthToFile(_chunks[0].text, _chunks[0].speaker);
     if (!_reading || !mounted) {
       _safeDelete(path);
       return;
@@ -286,7 +328,7 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
       _nextIndex = -1;
       return;
     }
-    final path = await _synthToFile(_chunks[index].text);
+    final path = await _synthToFile(_chunks[index].text, _chunks[index].speaker);
     if (!_reading || !mounted) {
       _safeDelete(path);
       return;
@@ -336,7 +378,7 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
     _active = 1 - _active;
     _chunkIndex = index;
     setState(() {});
-    final path = await _synthToFile(_chunks[index].text);
+    final path = await _synthToFile(_chunks[index].text, _chunks[index].speaker);
     if (!_reading || !mounted) {
       _safeDelete(path);
       return;
@@ -559,6 +601,20 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
             final sy = cy - focal * y / z;
             final depth = ((z - zNear) / (1 - zNear)).clamp(0.0, 1.0);
             placed.add(_Placed(entry.project, entry.ring, sx, sy, a, el, z, depth));
+          }
+          // 絞り込み/検索で残ったタイルが全て視線の裏(画面外)に来ると placed が
+          // 空になり何も映らなくなる。その場合は先頭タイルの方向へ視点を戻して
+          // 中央に出す(次フレームでそのタイルは a=0/el=0 となり必ず可視になる)。
+          if (placed.isEmpty && entries.isNotEmpty) {
+            final target = entries.first;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              setState(() {
+                viewAz = target.az;
+                viewEl = target.el.clamp(-1.1, 1.1);
+                _touch(); // 自転を一旦止めて中央表示を保つ
+              });
+            });
           }
           // 描画順: 遠い圏を先に(大きい圏index先)→圏内は端(小z)を先に→最後にindex
           placed.sort((p, q) {
@@ -797,9 +853,12 @@ class _ImmersiveProjectViewState extends State<ImmersiveProjectView>
           ),
           const SizedBox(height: 14),
           Text(
-              (_readSpeakerName != null && _readSpeakerName!.isNotEmpty)
-                  ? 'VOICEVOX:${_readSpeakerName!}'
-                  : 'Powered by VOICEVOX',
+              () {
+                final name = chunk == null ? null : _speakerNames[chunk.speaker];
+                return (name != null && name.isNotEmpty)
+                    ? 'VOICEVOX:$name'
+                    : 'Powered by VOICEVOX';
+              }(),
               style: const TextStyle(color: Colors.white38, fontSize: 11)),
         ],
       );
@@ -1187,13 +1246,15 @@ class _SaturnReadingViewState extends State<_SaturnReadingView>
   }
 }
 
-// 読み上げチャンク(文単位)。nodeIndex/nodeTotalは進捗表示用
+// 読み上げチャンク(文単位)。nodeIndex/nodeTotalは進捗表示用。
+// speaker はこのチャンク(題名/記事/コメントのいずれか)の話者ID。
 class _Chunk {
   final ManidocNode node;
   final int nodeIndex;
   final int nodeTotal;
   final String text;
-  _Chunk(this.node, this.nodeIndex, this.nodeTotal, this.text);
+  final int speaker;
+  _Chunk(this.node, this.nodeIndex, this.nodeTotal, this.text, this.speaker);
 }
 
 // 配置前のエントリ(方向+圏)
