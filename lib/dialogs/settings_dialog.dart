@@ -515,6 +515,8 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                     DropdownMenuItem(
                         value: 'Name', child: Text(L.t('sort_name'))),
                     DropdownMenuItem(
+                        value: 'Tag', child: Text(L.t('sort_tag'))),
+                    DropdownMenuItem(
                         value: 'Manual', child: Text(L.t('sort_manual'))),
                   ],
                   onChanged: (v) => setState(() => sortAxis = v!),
