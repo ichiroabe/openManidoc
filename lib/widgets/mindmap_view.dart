@@ -3,15 +3,18 @@ import 'package:flutter/material.dart';
 import '../models/manidoc_node.dart';
 
 /// ノードツリーをマインドマップ状に可視化する。
+/// プロジェクト名を単一のルートとし、各ルートノードをその子として配置する。
 /// 各ノードは深さ(列)×リーフ順(行)に配置し、親子を曲線で結ぶ。
-/// ノードをタップすると onSelect が呼ばれる。
+/// ノードをタップすると onSelect が呼ばれる(プロジェクト名ルートは選択不可)。
 class MindMapView extends StatelessWidget {
+  final String projectName;
   final List<ManidocNode> rootNodes;
   final ManidocNode? selected;
   final void Function(ManidocNode node) onSelect;
 
   const MindMapView({
     super.key,
+    required this.projectName,
     required this.rootNodes,
     required this.selected,
     required this.onSelect,
@@ -47,12 +50,15 @@ class MindMapView extends StatelessWidget {
       return y;
     }
 
-    for (final root in rootNodes) {
-      layout(root, 0);
-      leafRow++; // ルート間に隙間
-    }
+    // プロジェクト名を単一のルートにし、各ルートノードをその子として繋ぐ。
+    // (このノードは表示・配線専用の一時オブジェクト。保存には影響しない)
+    final projectRoot = ManidocNode(
+      title: projectName.isEmpty ? '(無題)' : projectName,
+      children: rootNodes,
+    );
+    layout(projectRoot, 0);
 
-    if (positions.isEmpty) {
+    if (rootNodes.isEmpty) {
       return const Center(child: Text('項目がありません'));
     }
 
@@ -96,7 +102,10 @@ class MindMapView extends StatelessWidget {
                 child: _MindNode(
                   node: entry.key,
                   selected: identical(entry.key, selected),
-                  onTap: () => onSelect(entry.key),
+                  isRoot: identical(entry.key, projectRoot),
+                  onTap: identical(entry.key, projectRoot)
+                      ? null
+                      : () => onSelect(entry.key),
                 ),
               ),
           ],
@@ -109,18 +118,33 @@ class MindMapView extends StatelessWidget {
 class _MindNode extends StatelessWidget {
   final ManidocNode node;
   final bool selected;
-  final VoidCallback onTap;
+  final bool isRoot;
+  final VoidCallback? onTap;
 
   const _MindNode(
-      {required this.node, required this.selected, required this.onTap});
+      {required this.node,
+      required this.selected,
+      this.isRoot = false,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // プロジェクト名ルートは強調(primaryContainer + 太字)。選択中は従来通り。
+    final Color bg = selected
+        ? scheme.primary
+        : isRoot
+            ? scheme.primaryContainer
+            : scheme.surfaceContainerHighest;
+    final Color fg = selected
+        ? scheme.onPrimary
+        : isRoot
+            ? scheme.onPrimaryContainer
+            : scheme.onSurface;
     return Material(
-      color: selected ? scheme.primary : scheme.surfaceContainerHighest,
+      color: bg,
       borderRadius: BorderRadius.circular(8),
-      elevation: selected ? 4 : 1,
+      elevation: selected ? 4 : (isRoot ? 2 : 1),
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
@@ -132,8 +156,9 @@ class _MindNode extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 13,
-                color: selected ? scheme.onPrimary : scheme.onSurface,
-                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                color: fg,
+                fontWeight:
+                    (selected || isRoot) ? FontWeight.bold : FontWeight.normal,
               ),
             ),
           ),

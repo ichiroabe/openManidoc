@@ -1166,6 +1166,7 @@ class _EditorScreenState extends State<EditorScreen> {
         ),
         Expanded(
           child: MindMapView(
+            projectName: project.name,
             rootNodes: project.rootNodes,
             selected: _selected,
             onSelect: (node) {
