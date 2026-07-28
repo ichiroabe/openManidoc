@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../l10n/strings.dart';
 import '../services/ai_service.dart';
+import '../services/settings_service.dart';
 import '../services/voicevox_service.dart';
 import 'mcp_config_dialog.dart';
 
@@ -73,6 +74,10 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
   var vvSpeakers = <({String name, int id})>[];
   var loadingVv = false;
   String? vvStatus;
+
+  // 読み上げ辞書(編集用のディープコピー。キャンセル時に元を汚さない)
+  var readingDict =
+      s.readingDict.map((r) => ReadingRule(r.from, r.to)).toList();
 
   // 🔄ボタン: 入力中のエンドポイントへ問い合わせてモデル一覧を取り直す
   Future<void> fetchLocalModels(
@@ -688,6 +693,67 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                     Text('x${voicevoxSpeed.toStringAsFixed(1)}'),
                   ],
                 ),
+
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(L.t('vv_dict_section'),
+                          style: Theme.of(context).textTheme.titleSmall),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => setState(
+                          () => readingDict.add(ReadingRule('', ''))),
+                      icon: const Icon(Icons.add, size: 16),
+                      label: Text(L.t('vv_dict_add')),
+                    ),
+                  ],
+                ),
+                Text(L.t('vv_dict_hint'),
+                    style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 6),
+                for (var i = 0; i < readingDict.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            key: ValueKey('rd-from-$i'),
+                            initialValue: readingDict[i].from,
+                            decoration: InputDecoration(
+                              labelText: L.t('vv_dict_from'),
+                              border: const OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            onChanged: (v) => readingDict[i].from = v,
+                          ),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 6),
+                          child: Icon(Icons.arrow_forward, size: 16),
+                        ),
+                        Expanded(
+                          child: TextFormField(
+                            key: ValueKey('rd-to-$i'),
+                            initialValue: readingDict[i].to,
+                            decoration: InputDecoration(
+                              labelText: L.t('vv_dict_to'),
+                              border: const OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            onChanged: (v) => readingDict[i].to = v,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 18),
+                          tooltip: L.t('delete'),
+                          onPressed: () =>
+                              setState(() => readingDict.removeAt(i)),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
@@ -730,6 +796,9 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
           : (int.tryParse(voicevoxSpeakerController.text.trim()) ??
               s.voicevoxSpeaker)
       ..voicevoxSpeed = double.parse(voicevoxSpeed.toStringAsFixed(1))
+      // 置換元が空の行は捨てる
+      ..readingDict =
+          readingDict.where((r) => r.from.isNotEmpty).toList()
       ..useLocalMcp = useMcp
       ..projectSortAxis = sortAxis
       ..exportHeadingNumbering = numbering

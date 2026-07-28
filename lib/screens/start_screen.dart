@@ -222,29 +222,58 @@ class _StartScreenState extends State<StartScreen> {
       return;
     }
     final controller = TextEditingController(text: L.t('manual_list'));
-    final title = await showDialog<String>(
+    final urlController = TextEditingController();
+    // 既定は本家同様の自動判定(タグ付きプロジェクトが1件でもあればON)
+    var groupByTag = app.projects.any((p) => p.tag.trim().isNotEmpty);
+    final ok = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(L.t('portal_dialog_title', [app.projects.length])),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(
-              labelText: L.t('portal_title_label'),
-              border: const OutlineInputBorder()),
-          onSubmitted: (v) => Navigator.pop(context, v),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setLocal) => AlertDialog(
+          title: Text(L.t('portal_dialog_title', [app.projects.length])),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: true,
+                decoration: InputDecoration(
+                    labelText: L.t('portal_title_label'),
+                    border: const OutlineInputBorder()),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: urlController,
+                keyboardType: TextInputType.url,
+                decoration: InputDecoration(
+                    labelText: L.t('portal_url_label'),
+                    hintText: 'https://...',
+                    border: const OutlineInputBorder()),
+                onSubmitted: (_) => Navigator.pop(context, true),
+              ),
+              CheckboxListTile(
+                value: groupByTag,
+                onChanged: (v) => setLocal(() => groupByTag = v ?? false),
+                title: Text(L.t('portal_group_by_tag')),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                dense: true,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(L.t('cancel'))),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(L.t('export'))),
+          ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(L.t('cancel'))),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim()),
-              child: Text(L.t('export'))),
-        ],
       ),
     );
-    if (title == null || title.isEmpty) return;
+    if (ok != true) return;
+    final title = controller.text.trim();
+    if (title.isEmpty) return;
     final s = app.settings;
     final dir = await PortalExporter(app.workspace!).export(
       app.projects,
@@ -253,6 +282,8 @@ class _StartScreenState extends State<StartScreen> {
       tts: s.enableExportTts,
       ttsSpeed: s.exportTtsSpeed,
       articleFontSize: s.articleFontSize,
+      titleUrl: urlController.text.trim(),
+      useGrouping: groupByTag,
     );
     _snack(L.t('portal_done'), folderPath: dir);
   }
@@ -687,12 +718,29 @@ class _StartScreenState extends State<StartScreen> {
             DropdownMenuItem(value: 'LastModifiedAt', child: Text(L.t('sort_modified'))),
             DropdownMenuItem(value: 'CreatedAt', child: Text(L.t('sort_created'))),
             DropdownMenuItem(value: 'Name', child: Text(L.t('sort_name'))),
+            DropdownMenuItem(value: 'Tag', child: Text(L.t('sort_tag'))),
             DropdownMenuItem(value: 'Manual', child: Text(L.t('sort_manual'))),
           ],
           onChanged: (v) {
             app.settings.projectSortAxis = v!;
             app.saveSettings();
           },
+        ),
+        const SizedBox(width: 8),
+        // 本家GroupByTag互換: タグ見出しごとにまとめて表示するトグル
+        TextButton.icon(
+          onPressed: () {
+            app.settings.groupByTag = !app.settings.groupByTag;
+            app.saveSettings();
+          },
+          icon: Icon(
+              app.settings.groupByTag
+                  ? Icons.workspaces
+                  : Icons.workspaces_outlined,
+              size: 18),
+          label: Text(app.settings.groupByTag
+              ? L.t('ungroup')
+              : L.t('group_by_tag')),
         ),
         const Spacer(),
         if (app.workspace != null) ...[
@@ -735,10 +783,68 @@ class _StartScreenState extends State<StartScreen> {
         child: Center(child: Text(L.t('no_projects'))),
       );
     }
+    if (app.settings.groupByTag) return _buildGroupedGrid(context);
     return Wrap(
       spacing: 12,
       runSpacing: 12,
       children: [for (final p in app.projects) _buildProjectCard(context, p)],
+    );
+  }
+
+  // タグ見出しごとにセクション分けして表示(本家GroupByTag互換)。
+  // セクション順=タグ定義順(未定義タグは名前順、無タグは末尾)。
+  // セクション内=現在のソート順(app.projectsは_sortProjects適用済み)を保持。
+  Widget _buildGroupedGrid(BuildContext context) {
+    final tagOrder = {
+      for (var i = 0; i < app.workspaceTags.length; i++)
+        app.workspaceTags[i].name: i
+    };
+    final buckets = <String, List<ManidocProject>>{};
+    for (final p in app.projects) {
+      buckets.putIfAbsent(p.tag.trim(), () => []).add(p);
+    }
+    final keys = buckets.keys.toList()
+      ..sort((a, b) {
+        if (a == b) return 0;
+        if (a.isEmpty) return 1; // 無タグは最後
+        if (b.isEmpty) return -1;
+        final ia = tagOrder[a] ?? (1 << 30);
+        final ib = tagOrder[b] ?? (1 << 30);
+        return ia != ib ? ia.compareTo(ib) : a.compareTo(b);
+      });
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final key in keys) ...[
+          Padding(
+            padding: const EdgeInsets.only(top: 12, bottom: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.sell_outlined,
+                    size: 16, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 6),
+                Text(key.isEmpty ? L.t('tag_none') : key,
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(width: 8),
+                Text('${buckets[key]!.length}',
+                    style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              for (final p in buckets[key]!) _buildProjectCard(context, p)
+            ],
+          ),
+          const Divider(height: 28),
+        ],
+      ],
     );
   }
 

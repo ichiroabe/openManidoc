@@ -25,15 +25,24 @@ class HtmlExporter {
   double _ttsSpeed = 1.0;
   double _articleSize = 14;
   String? _themeCss;
+  // Web一括出力: 全プロジェクトへのリンクメニュー(本家互換の右上☰)
+  List<({String name, String url})> _projectLinks = const [];
+  bool get _hasProjectLinks => _projectLinks.isNotEmpty;
+  // Web一括出力の「戻る」先(タグ別サブページ or トップ)。空なら ../index.html。
+  String _backLinkUrl = '';
 
   String getBaseCss({
     bool includeToc = true,
     bool tts = false,
     double articleFontSize = 14,
+    bool hasProjectLinks = false,
   }) {
     _includeToc = includeToc;
     _tts = tts;
     _articleSize = articleFontSize;
+    _projectLinks = hasProjectLinks
+        ? const [(name: '_', url: '_')] // CSS生成にのみ使う番兵
+        : const [];
     return _baseCss();
   }
 
@@ -48,13 +57,17 @@ class HtmlExporter {
       int maxDimension = 1920,
       double articleFontSize = 14,
       String? themeCss,
-      bool isBulkExport = false}) async {
+      bool isBulkExport = false,
+      List<({String name, String url})> projectLinks = const [],
+      String backLinkUrl = ''}) async {
     _includeToc = includeToc;
     _numbering = numbering;
     _tts = tts;
     _ttsSpeed = ttsSpeed;
     _articleSize = articleFontSize;
     _themeCss = themeCss;
+    _projectLinks = projectLinks;
+    _backLinkUrl = backLinkUrl;
 
     final dir = Directory(outputDir);
     await dir.create(recursive: true);
@@ -144,6 +157,10 @@ class HtmlExporter {
   }
 
   String _esc(String s) => const HtmlEscape().convert(s);
+  // href等の属性値用。デフォルトのHtmlEscapeは "/" も &#47; にしてしまい
+  // 相対URLが読みにくくなるため、属性モード(スラッシュを保持)を使う。
+  String _escAttr(String s) =>
+      const HtmlEscape(HtmlEscapeMode.attribute).convert(s);
   String _md(String text) => md.markdownToHtml(fixTableMarkdownSpacing(text),
       extensionSet: md.ExtensionSet.gitHubFlavored);
 
@@ -208,6 +225,30 @@ $toc    </ul>
   </nav>'''
         : '';
 
+    // Web一括出力時: 全プロジェクトへのリンクメニュー(右上☰・本家互換)
+    final projLinks = StringBuffer();
+    for (final l in _projectLinks) {
+      projLinks.writeln(
+          '      <li><a href="${_escAttr(l.url)}">${_esc(l.name)}</a></li>');
+    }
+    final projectMenuMarkup = _hasProjectLinks
+        ? '''
+  <button id="project-menu-toggle" title="プロジェクト一覧を表示">☰</button>
+  <div id="project-menu-overlay"></div>
+  <nav id="project-menu">
+    <h2>プロジェクト一覧</h2>
+    <ul>
+$projLinks    </ul>
+  </nav>'''
+        : '';
+
+    // Web一括出力時: 一覧へ戻るリンク(本家互換)。タグでグループ化した場合は
+    // 所属タグのサブページへ、それ以外はトップの index.html へ戻す。
+    final backHref = _backLinkUrl.isNotEmpty ? _backLinkUrl : '../index.html';
+    final backLinkMarkup = isBulkExport
+        ? '  <a href="${_escAttr(backHref)}" class="back-link">← 一覧に戻る</a>'
+        : '';
+
     return '''
 <!DOCTYPE html>
 <html lang="ja">
@@ -219,6 +260,8 @@ $cssLinks
 </head>
 <body>
 $tocMarkup
+$projectMenuMarkup
+$backLinkMarkup
   <div id="main-content" class="content-wrapper">
     <h1>${_esc(project.name)}</h1>
     <hr>
@@ -351,6 +394,23 @@ pre code { background-color: transparent; padding: 0; color: inherit; font-size:
 #menu-toggle.open { left: 20px; background: #333; }
 #sidebar-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.2); backdrop-filter: blur(4px); visibility: hidden; opacity: 0; transition: all 0.3s; z-index: 999; }
 #sidebar-overlay.show { visibility: visible; opacity: 1; }
+#sidebar.open ~ .back-link { left: 340px; }
+''';
+
+  // Web一括出力の「プロジェクト一覧」右サイドメニュー(本家互換)
+  static const String _projectMenuCssBody = '''
+#project-menu { position: fixed; top: 0; right: -320px; width: 320px; height: 100%; background: #fff; color: #333; transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); overflow-y: auto; z-index: 1000; padding: 30px; box-sizing: border-box; box-shadow: -20px 0 50px rgba(0,0,0,0.05); border-left: 1px solid #eee; }
+#project-menu.open { right: 0; }
+#project-menu h2 { border: none; background: none; color: #111; font-size: 1.4em; margin-top: 10px; padding: 0; border-bottom: none; font-weight: 800; }
+#project-menu ul { list-style: none; padding: 0; margin: 30px 0; }
+#project-menu li { margin: 8px 0; }
+#project-menu a { color: #666; text-decoration: none; transition: all 0.2s; font-size: 0.95em; display: block; padding: 6px 0; }
+#project-menu a:hover { color: var(--primary-color); padding-left: 5px; }
+#project-menu-toggle { position: fixed; top: 20px; right: 20px; width: 44px; height: 44px; background: var(--primary-color); color: white; border: none; border-radius: 8px; cursor: pointer; z-index: 1001; display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); transition: all 0.3s ease; }
+#project-menu-toggle:hover { transform: scale(1.05); filter: brightness(0.9); }
+#project-menu-toggle.open { right: 20px; background: #333; }
+#project-menu-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.2); backdrop-filter: blur(4px); visibility: hidden; opacity: 0; transition: all 0.3s; z-index: 999; }
+#project-menu-overlay.show { visibility: visible; opacity: 1; }
 ''';
 
   static const String _ttsCssBody = '''
@@ -374,6 +434,7 @@ pre code { background-color: transparent; padding: 0; color: inherit; font-size:
   String _baseCss() {
     final tocCss = _includeToc ? _tocCssBody : '';
     final ttsCss = _tts ? _ttsCssBody : '';
+    final projCss = _hasProjectLinks ? _projectMenuCssBody : '';
     return '''
 :root {
   --main-bg-color: #fcfcfc;
@@ -393,16 +454,18 @@ pre code { background-color: transparent; padding: 0; color: inherit; font-size:
   --comment-font-size: ${_articleSize}px;
 }
 ${_bodyRule(_defaultFont)}
-$_styleAfterBody$tocCss$ttsCss''';
+$_styleAfterBody$tocCss$projCss$ttsCss''';
   }
 
   // ---------- JS(本家互換: サイドバー開閉 + TTS) ----------
 
   String _script() {
-    if (!_includeToc && !_tts) return '';
+    if (!_includeToc && !_tts && !_hasProjectLinks) return '';
+    // mainContent は目次/プロジェクトメニュー双方の blur 制御で使うので一度だけ定義
+    const mainContentJs =
+        "    const mainContent = document.getElementById('main-content');";
     final sidebarJs = _includeToc
         ? '''
-    const mainContent = document.getElementById('main-content');
     const menuToggle = document.getElementById('menu-toggle');
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebar-overlay');
@@ -417,6 +480,20 @@ $_styleAfterBody$tocCss$ttsCss''';
     document.querySelectorAll('#sidebar a').forEach(link => {
       link.addEventListener('click', () => { if (sidebar.classList.contains('open')) toggleMenu(); });
     });'''
+        : '';
+    final projMenuJs = _hasProjectLinks
+        ? '''
+    const projMenuToggle = document.getElementById('project-menu-toggle');
+    const projMenu = document.getElementById('project-menu');
+    const projOverlay = document.getElementById('project-menu-overlay');
+    function toggleProjMenu() {
+      projMenu.classList.toggle('open');
+      projMenuToggle.classList.toggle('open');
+      projOverlay.classList.toggle('show');
+      mainContent.classList.toggle('blur');
+    }
+    if (projMenuToggle) projMenuToggle.addEventListener('click', toggleProjMenu);
+    if (projOverlay) projOverlay.addEventListener('click', toggleProjMenu);'''
         : '';
     final ttsJs = _tts
         ? '''
@@ -442,6 +519,6 @@ $_styleAfterBody$tocCss$ttsCss''';
       currentUtterance = uttr;
     }'''
         : '';
-    return '  <script>\n$sidebarJs\n$ttsJs\n  </script>';
+    return '  <script>\n$mainContentJs\n$sidebarJs\n$projMenuJs\n$ttsJs\n  </script>';
   }
 }

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:markdown_widget/markdown_widget.dart';
 import 'package:pasteboard/pasteboard.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../app_state.dart';
@@ -24,6 +27,8 @@ import '../services/html_import.dart';
 import '../services/link_router.dart';
 import '../services/markdown_io.dart';
 import '../services/node_copy_service.dart';
+import '../services/plain_text.dart';
+import '../services/voicevox_service.dart';
 import '../widgets/wysiwyg_editor.dart';
 import '../widgets/mindmap_view.dart';
 
@@ -94,6 +99,15 @@ class _EditorScreenState extends State<EditorScreen> {
   final _titleController = TextEditingController();
   final _aiPromptController = TextEditingController();
 
+  // 読み上げキャラ設定(VOICEVOX)。話者一覧はエディタで1回取得して3箇所で共用。
+  final AudioPlayer _vvPreview = AudioPlayer();
+  List<({String name, int id})> _vvSpeakers = [];
+  bool _vvFetching = false;
+  int? _vvPreviewing; // 試聴合成中のフィールド(0=題名,1=記事,2=コメント)
+  int? _vvPlayingField; // 試聴再生中のフィールド(▶→⏹トグル用)
+  String? _vvPreviewPath; // 直近の試聴一時WAV(次の試聴/破棄時に削除)
+  StreamSubscription<void>? _vvPreviewSub; // 試聴の再生完了監視
+
   // WYSIWYGエディタは node.id + version でキーする。
   // 外部(AI/編集拡大/置換/再読込)から本文を書き換えたらversionを上げて作り直す。
   int _articleVer = 0;
@@ -107,6 +121,10 @@ class _EditorScreenState extends State<EditorScreen> {
     super.initState();
     _loadThemes();
     _updateThemeColor();
+    // 試聴の再生が終わったら再生中フラグを下ろす(▶表示に戻す)
+    _vvPreviewSub = _vvPreview.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => _vvPlayingField = null);
+    });
     // エディタ内リンク(Ctrl/ダブルクリック)の遷移をこの画面で処理する
     activeLinkHandler = _onLinkTap;
     if (project.rootNodes.isNotEmpty) {
@@ -193,7 +211,80 @@ class _EditorScreenState extends State<EditorScreen> {
     _searchController.dispose();
     _replaceController.dispose();
     _imageFocusNode.dispose();
+    _vvPreviewSub?.cancel();
+    _vvPreview.dispose();
+    _safeDeleteFile(_vvPreviewPath);
     super.dispose();
+  }
+
+  void _safeDeleteFile(String? path) {
+    if (path == null) return;
+    try {
+      final f = File(path);
+      if (f.existsSync()) f.deleteSync();
+    } catch (_) {}
+  }
+
+  // ---------------- 読み上げキャラ(VOICEVOX) ----------------
+
+  // 話者一覧を取得(接続テストも兼ねる)。3つのドロップダウンで共用。
+  Future<void> _fetchVvSpeakers() async {
+    if (_vvFetching) return;
+    setState(() => _vvFetching = true);
+    final svc = VoicevoxService(app.settings.voicevoxEndpoint);
+    final sp = await svc.speakers();
+    if (!mounted) return;
+    setState(() {
+      _vvSpeakers = sp;
+      _vvFetching = false;
+    });
+    if (sp.isEmpty) _snack(L.t('vv_unavailable'));
+  }
+
+  // 指定フィールドの話者で試し聞き。speaker が null なら設定値にフォロー。
+  // 再生中の同じフィールドをもう一度押したら停止(▶⇔⏹トグル)。
+  // field: 0=題名 1=記事 2=コメント
+  Future<void> _previewSpeaker(int field, int? speaker, String rawText) async {
+    // 再生中の同フィールド → 停止
+    if (_vvPlayingField == field) {
+      await _vvPreview.stop();
+      if (mounted) setState(() => _vvPlayingField = null);
+      return;
+    }
+    final text = _plainForPreview(field, rawText);
+    if (text.trim().isEmpty) {
+      _snack(L.t('vv_no_text'));
+      return;
+    }
+    setState(() => _vvPreviewing = field);
+    final s = app.settings;
+    final svc = VoicevoxService(s.voicevoxEndpoint);
+    try {
+      final wav = await svc.synthesize(
+          s.applyReadingDict(text), speaker ?? s.voicevoxSpeaker,
+          speed: s.voicevoxSpeed);
+      final dir = await getTemporaryDirectory();
+      await dir.create(recursive: true);
+      final f = File('${dir.path}${Platform.pathSeparator}'
+          'vvprev_${DateTime.now().microsecondsSinceEpoch}.wav');
+      await f.writeAsBytes(wav);
+      await _vvPreview.stop();
+      _safeDeleteFile(_vvPreviewPath);
+      _vvPreviewPath = f.path;
+      await _vvPreview.play(DeviceFileSource(f.path));
+      if (mounted) setState(() => _vvPlayingField = field);
+    } catch (_) {
+      if (mounted) _snack(L.t('vv_unavailable'));
+    } finally {
+      if (mounted) setState(() => _vvPreviewing = null);
+    }
+  }
+
+  // 試聴テキスト。題名はそのまま、記事/コメントはMarkdownを除去。
+  // 没入モードと同じ全文を読む(途中で切ると内容が欠けたように見えるため)。
+  String _plainForPreview(int field, String raw) {
+    if (field == 0) return raw.trim();
+    return markdownToPlain(raw).trim();
   }
 
   void _snack(String message, {String? folderPath}) {
@@ -1564,6 +1655,75 @@ class _EditorScreenState extends State<EditorScreen> {
   GlobalKey _rowKey(ManidocNode node) =>
       _rowKeys.putIfAbsent(node.id, () => GlobalKey());
 
+  // 読み上げキャラ選択＋試聴。3フィールド(題名/記事/コメント)で共用。
+  // value=null は「設定に従う」。話者未取得時は取得ボタンを出す。
+  Widget _speakerControl({
+    required int field,
+    required int? value,
+    required ValueChanged<int?> onChanged,
+    required String rawText,
+  }) {
+    final busy = _vvPreviewing == field;
+    final playing = _vvPlayingField == field;
+    if (_vvSpeakers.isEmpty) {
+      return OutlinedButton.icon(
+        onPressed: _vvFetching ? null : _fetchVvSpeakers,
+        icon: _vvFetching
+            ? const SizedBox(
+                width: 13,
+                height: 13,
+                child: CircularProgressIndicator(strokeWidth: 2))
+            : const Icon(Icons.record_voice_over, size: 15),
+        label: Text(value == null
+            ? L.t('vv_char_fetch')
+            : L.t('vv_char_saved_id', [value])),
+        style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+      );
+    }
+    // 保存済みIDが一覧に無い場合(別エンジン等)でも欠落させない
+    final known = _vvSpeakers.any((e) => e.id == value);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.record_voice_over, size: 15, color: Colors.grey),
+        const SizedBox(width: 4),
+        DropdownButton<int?>(
+          value: known ? value : null,
+          isDense: true,
+          underline: const SizedBox.shrink(),
+          style: Theme.of(context).textTheme.bodyMedium,
+          hint: Text(L.t('vv_char_follow'),
+              style: Theme.of(context).textTheme.bodySmall),
+          items: [
+            DropdownMenuItem<int?>(
+              value: null,
+              child: Text(L.t('vv_char_follow'),
+                  style: const TextStyle(fontSize: 13)),
+            ),
+            for (final sp in _vvSpeakers)
+              DropdownMenuItem<int?>(
+                value: sp.id,
+                child: Text(sp.name, style: const TextStyle(fontSize: 13)),
+              ),
+          ],
+          onChanged: (v) => onChanged(v),
+        ),
+        IconButton(
+          tooltip: L.t('vv_char_preview'),
+          visualDensity: VisualDensity.compact,
+          onPressed: busy ? null : () => _previewSpeaker(field, value, rawText),
+          icon: busy
+              ? const SizedBox(
+                  width: 15,
+                  height: 15,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : Icon(playing ? Icons.stop_circle_outlined : Icons.play_circle_outline,
+                  size: 20),
+        ),
+      ],
+    );
+  }
+
   Widget _buildEditPanel(BuildContext context) {
     final sel = _selected;
     if (sel == null) {
@@ -1574,7 +1734,21 @@ class _EditorScreenState extends State<EditorScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(L.t('title_label'), style: _labelStyle(context)),
+          Row(
+            children: [
+              Text(L.t('title_label'), style: _labelStyle(context)),
+              const Spacer(),
+              _speakerControl(
+                field: 0,
+                value: sel.titleSpeaker,
+                onChanged: (v) => setState(() {
+                  sel.titleSpeaker = v;
+                  _dirty = true;
+                }),
+                rawText: sel.title,
+              ),
+            ],
+          ),
           const SizedBox(height: 6),
           TextField(
             controller: _titleController,
@@ -1611,6 +1785,19 @@ class _EditorScreenState extends State<EditorScreen> {
                     style: Theme.of(context).textTheme.bodySmall),
               ),
             ],
+          ),
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _speakerControl(
+              field: 1,
+              value: sel.articleSpeaker,
+              onChanged: (v) => setState(() {
+                sel.articleSpeaker = v;
+                _dirty = true;
+              }),
+              rawText: sel.article,
+            ),
           ),
           const SizedBox(height: 6),
           WysiwygEditor(
@@ -1815,6 +2002,19 @@ class _EditorScreenState extends State<EditorScreen> {
                 child: Text(L.t('expanded_edit')),
               ),
             ],
+          ),
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _speakerControl(
+              field: 2,
+              value: sel.commentSpeaker,
+              onChanged: (v) => setState(() {
+                sel.commentSpeaker = v;
+                _dirty = true;
+              }),
+              rawText: sel.comment,
+            ),
           ),
           const SizedBox(height: 6),
           WysiwygEditor(

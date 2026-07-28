@@ -4,6 +4,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'crypto_service.dart';
 
+/// 読み上げ辞書の1エントリ。VOICEVOXへ渡す前に from→to へ単純置換する。
+/// 例: 「〜」は読み飛ばされるため「から」に置換する。
+class ReadingRule {
+  String from;
+  String to;
+  ReadingRule(this.from, this.to);
+
+  factory ReadingRule.fromJson(Map<String, dynamic> json) => ReadingRule(
+        json['from'] as String? ?? '',
+        json['to'] as String? ?? '',
+      );
+
+  Map<String, dynamic> toJson() => {'from': from, 'to': to};
+}
+
 /// アプリ全体設定。ChatGPT/ClaudeのAPIキーおよびモデル設定をサポート。
 class AppSettings {
   String language; // "ja", "en"
@@ -25,10 +40,16 @@ class AppSettings {
   /// プロジェクト選択画面を「没入ビュー」(球状の本棚)で表示する。
   bool immersiveProjectView;
 
+  /// プロジェクト一覧をタグ見出しごとにグループ表示する(本家GroupByTag互換)。
+  bool groupByTag;
+
   /// VOICEVOX ENGINE の接続先(別途起動しておく)。
   String voicevoxEndpoint;
   int voicevoxSpeaker; // 話者ID(/speakers で確認)
   double voicevoxSpeed; // 話速
+
+  /// 読み上げ辞書。VOICEVOXへ渡す直前に順に単純置換する(没入モード/試し聞き共通)。
+  List<ReadingRule> readingDict;
   bool exportHeadingNumbering;
   bool enableExportTts;
   double exportTtsSpeed;
@@ -67,6 +88,7 @@ class AppSettings {
     this.useLocalMcp = false,
     this.projectSortAxis = 'LastModifiedAt',
     this.immersiveProjectView = false,
+    this.groupByTag = false,
     this.voicevoxEndpoint = 'http://127.0.0.1:50021',
     this.voicevoxSpeaker = 3,
     this.voicevoxSpeed = 1.0,
@@ -78,7 +100,25 @@ class AppSettings {
     this.exportMaxDimension = 1920,
     this.articleFontSize = 14.0,
     List<String>? bgPaletteColors,
-  }) : bgPaletteColors = _normalizePalette(bgPaletteColors);
+    List<ReadingRule>? readingDict,
+  })  : bgPaletteColors = _normalizePalette(bgPaletteColors),
+        readingDict = readingDict ?? defaultReadingDict();
+
+  /// 既定の読み上げ辞書: 波ダッシュ(〜)/全角チルダ(～)は読まれないため「から」へ。
+  static List<ReadingRule> defaultReadingDict() => [
+        ReadingRule('〜', 'から'),
+        ReadingRule('～', 'から'),
+      ];
+
+  /// 読み上げ辞書を順に適用し、VOICEVOXへ渡すテキストへ整形する。
+  String applyReadingDict(String text) {
+    var s = text;
+    for (final r in readingDict) {
+      if (r.from.isEmpty) continue;
+      s = s.replaceAll(r.from, r.to);
+    }
+    return s;
+  }
 
   /// パレットを既定スロット数(8)に揃える(不足分は既定色で補完)
   static List<String> _normalizePalette(List<String>? p) {
@@ -146,10 +186,15 @@ class AppSettings {
         useLocalMcp: json['useLocalMcp'] as bool? ?? false,
         projectSortAxis: json['projectSortAxis'] as String? ?? 'LastModifiedAt',
         immersiveProjectView: json['immersiveProjectView'] as bool? ?? false,
+        groupByTag: json['groupByTag'] as bool? ?? false,
         voicevoxEndpoint: json['voicevoxEndpoint'] as String? ??
             'http://127.0.0.1:50021',
         voicevoxSpeaker: (json['voicevoxSpeaker'] as num?)?.toInt() ?? 3,
         voicevoxSpeed: (json['voicevoxSpeed'] as num?)?.toDouble() ?? 1.0,
+        // キー無し(旧データ)は null → 既定辞書をシード。空配列なら空のまま尊重。
+        readingDict: (json['readingDict'] as List<dynamic>?)
+            ?.map((e) => ReadingRule.fromJson(e as Map<String, dynamic>))
+            .toList(),
         exportHeadingNumbering: json['exportHeadingNumbering'] as bool? ?? true,
         enableExportTts: json['enableExportTts'] as bool? ?? false,
         exportTtsSpeed: (json['exportTtsSpeed'] as num?)?.toDouble() ?? 1.0,
@@ -179,9 +224,11 @@ class AppSettings {
         'useLocalMcp': useLocalMcp,
         'projectSortAxis': projectSortAxis,
         'immersiveProjectView': immersiveProjectView,
+        'groupByTag': groupByTag,
         'voicevoxEndpoint': voicevoxEndpoint,
         'voicevoxSpeaker': voicevoxSpeaker,
         'voicevoxSpeed': voicevoxSpeed,
+        'readingDict': readingDict.map((e) => e.toJson()).toList(),
         'exportHeadingNumbering': exportHeadingNumbering,
         'enableExportTts': enableExportTts,
         'exportTtsSpeed': exportTtsSpeed,

@@ -26,6 +26,9 @@ class NodeCopyService {
         article: node.article,
         imagePath: node.imagePath,
         aiPrompt: node.aiPrompt,
+        titleSpeaker: node.titleSpeaker,
+        articleSpeaker: node.articleSpeaker,
+        commentSpeaker: node.commentSpeaker,
         isExpanded: node.isExpanded,
         children: node.children.map(deepCopy).toList(),
       );

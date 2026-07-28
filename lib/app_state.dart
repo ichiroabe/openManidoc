@@ -95,6 +95,16 @@ class AppState extends ChangeNotifier {
         projects.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       case 'Manual':
         projects.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+      case 'Tag':
+        // 本家準拠: タグ定義の登録順を一次キー(未定義/無タグは末尾)、その中は手動順
+        final order = {
+          for (var i = 0; i < workspaceTags.length; i++) workspaceTags[i].name: i
+        };
+        int idx(ManidocProject p) => order[p.tag] ?? (1 << 30);
+        projects.sort((a, b) {
+          final c = idx(a).compareTo(idx(b));
+          return c != 0 ? c : a.sortOrder.compareTo(b.sortOrder);
+        });
       default: // LastModifiedAt
         projects.sort((a, b) => b.lastModifiedAt.compareTo(a.lastModifiedAt));
     }
