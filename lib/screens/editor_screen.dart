@@ -1527,6 +1527,38 @@ class _EditorScreenState extends State<EditorScreen> {
     return items;
   }
 
+  /// ツリー行のタイトル表示。検索語がタイトルに含まれる場合はマーカーで強調する。
+  Widget _buildNodeTitleText(ManidocNode node, bool selected) {
+    final title =
+        node.title.isEmpty ? (L.isJa ? '(無題)' : '(untitled)') : node.title;
+    final baseStyle = TextStyle(
+      fontSize: 13,
+      fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+    );
+    final query = _searchController.text.trim();
+    final idx =
+        query.isEmpty ? -1 : title.toLowerCase().indexOf(query.toLowerCase());
+    if (idx < 0) {
+      return Text(title, overflow: TextOverflow.ellipsis, style: baseStyle);
+    }
+    final end = idx + query.length;
+    return Text.rich(
+      TextSpan(style: baseStyle, children: [
+        TextSpan(text: title.substring(0, idx)),
+        TextSpan(
+          text: title.substring(idx, end),
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            backgroundColor: Color(0xFFFFEB3B),
+            color: Colors.black,
+          ),
+        ),
+        TextSpan(text: title.substring(end)),
+      ]),
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+
   Widget _buildTreeRow(ManidocNode node, int depth) {
     final selected = identical(node, _selected);
     final isHit = _searchHits.contains(node);
@@ -1581,14 +1613,7 @@ class _EditorScreenState extends State<EditorScreen> {
               const SizedBox(width: 18),
             const SizedBox(width: 4),
             Expanded(
-              child: Text(
-                node.title.isEmpty ? (L.isJa ? '(無題)' : '(untitled)') : node.title,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                ),
-              ),
+              child: _buildNodeTitleText(node, selected),
             ),
           ],
         ),
@@ -1806,6 +1831,7 @@ class _EditorScreenState extends State<EditorScreen> {
             initialMarkdown: sel.article,
             height: _articleHeight,
             onPickNodeLink: _pickNodeLink,
+            highlightQuery: _searchController.text,
             onChanged: (md) {
               sel.article = md;
               if (!_dirty) setState(() => _dirty = true);
@@ -2023,6 +2049,7 @@ class _EditorScreenState extends State<EditorScreen> {
             initialMarkdown: sel.comment,
             height: _commentHeight,
             onPickNodeLink: _pickNodeLink,
+            highlightQuery: _searchController.text,
             onChanged: (md) {
               sel.comment = md;
               if (!_dirty) setState(() => _dirty = true);

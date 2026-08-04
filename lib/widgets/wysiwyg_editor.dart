@@ -67,12 +67,18 @@ class WysiwygEditor extends StatefulWidget {
   /// 返ってきたら `[title](#node:id)` リンクとして挿入する。
   final Future<({String id, String title})?> Function()? onPickNodeLink;
 
+  /// プロジェクト内検索の検索語。指定されると本文中の最初の一致箇所を
+  /// エディタのネイティブ選択(selection)でハイライトする。
+  /// 選択はドキュメントを書き換えない表示上の状態なので、保存データには影響しない。
+  final String? highlightQuery;
+
   const WysiwygEditor({
     super.key,
     required this.initialMarkdown,
     required this.onChanged,
     this.height = 260,
     this.onPickNodeLink,
+    this.highlightQuery,
   });
 
   @override
@@ -105,6 +111,53 @@ class _WysiwygEditorState extends State<WysiwygEditor> {
       widget.onChanged(
           fixTableMarkdownSpacing(documentToMarkdown(_editorState.document)));
     });
+    _highlightFirstMatch();
+  }
+
+  /// 検索語の最初の一致箇所をネイティブ選択(selection)でハイライトし、
+  /// 見える位置までスクロールする。document は一切変更しない。
+  void _highlightFirstMatch() {
+    final query = widget.highlightQuery?.trim();
+    if (query == null || query.isEmpty) return;
+    final lowerQuery = query.toLowerCase();
+
+    final children = _editorState.document.root.children;
+    if (children.isEmpty) return;
+    final textNodes = children.where((n) => n.delta != null);
+    if (textNodes.isEmpty) return;
+    final nodes = NodeIterator(
+      document: _editorState.document,
+      startNode: textNodes.first,
+      endNode: textNodes.last,
+    ).toList()
+      ..removeWhere((n) => n.delta == null);
+
+    for (final node in nodes) {
+      final text = node.delta!.toPlainText();
+      final idx = text.toLowerCase().indexOf(lowerQuery);
+      if (idx < 0) continue;
+      final selection = Selection(
+        start: Position(path: node.path, offset: idx),
+        end: Position(path: node.path, offset: idx + query.length),
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _editorState.selection = selection;
+        if (!_scrollController.shrinkWrap) {
+          try {
+            if (_scrollController.itemScrollController.isAttached) {
+              _scrollController.itemScrollController.jumpTo(
+                index: node.path.isEmpty ? 0 : node.path.first,
+                alignment: 0.3,
+              );
+            }
+          } catch (_) {
+            // スクロール失敗は致命的でないので無視
+          }
+        }
+      });
+      return;
+    }
   }
 
   /// `[[` を検出してノードリンクを挿入する文字ショートカット

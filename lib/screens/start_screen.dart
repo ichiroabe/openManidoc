@@ -26,7 +26,10 @@ class _GlobalHit {
   final ManidocNode node;
   final String area; // 'title' | 'article' | 'comment'
   final String snippet;
-  _GlobalHit(this.project, this.node, this.area, this.snippet);
+  final int matchStart; // snippet 内でのヒット開始位置
+  final int matchEnd; // snippet 内でのヒット終了位置
+  _GlobalHit(this.project, this.node, this.area, this.snippet,
+      this.matchStart, this.matchEnd);
 }
 
 /// スタート画面。本家StartView準拠: アクションタイル+プロジェクトカードグリッド。
@@ -101,9 +104,15 @@ class _StartScreenState extends State<StartScreen> {
               if (idx >= 0) {
                 final start = (idx - 15).clamp(0, entry.$2.length);
                 final end = (idx + 30).clamp(0, entry.$2.length);
-                final snippet =
-                    '${start > 0 ? '…' : ''}${entry.$2.substring(start, end).replaceAll('\n', ' ')}${end < entry.$2.length ? '…' : ''}';
-                hits.add(_GlobalHit(project, node, entry.$1, snippet));
+                final prefix = start > 0 ? '…' : '';
+                final body =
+                    entry.$2.substring(start, end).replaceAll('\n', ' ');
+                final suffix = end < entry.$2.length ? '…' : '';
+                final snippet = '$prefix$body$suffix';
+                final matchStart = prefix.length + (idx - start);
+                final matchEnd = matchStart + q.length;
+                hits.add(_GlobalHit(
+                    project, node, entry.$1, snippet, matchStart, matchEnd));
               }
             }
           }
@@ -568,6 +577,28 @@ class _StartScreenState extends State<StartScreen> {
     );
   }
 
+  /// 検索スニペット内のヒット箇所を強調表示する TextSpan を組み立てる。
+  TextSpan _highlightedSnippet(BuildContext context, _GlobalHit hit) {
+    final baseStyle = Theme.of(context).textTheme.bodyMedium;
+    final start = hit.matchStart.clamp(0, hit.snippet.length);
+    final end = hit.matchEnd.clamp(start, hit.snippet.length);
+    return TextSpan(
+      style: baseStyle,
+      children: [
+        TextSpan(text: hit.snippet.substring(0, start)),
+        TextSpan(
+          text: hit.snippet.substring(start, end),
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            backgroundColor: Color(0xFFFFEB3B), // マーカーペン風の黄色(テーマ非依存で視認性優先)
+            color: Colors.black,
+          ),
+        ),
+        TextSpan(text: hit.snippet.substring(end)),
+      ],
+    );
+  }
+
   Widget _buildGlobalResults(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -583,8 +614,11 @@ class _StartScreenState extends State<StartScreen> {
               leading: const Icon(Icons.article_outlined),
               title: Text('${hit.project.name}  ›  ${hit.node.title}',
                   style: const TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: Text(hit.snippet,
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text.rich(
+                _highlightedSnippet(context, hit),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               trailing: Chip(
                 label: Text(hit.area, style: const TextStyle(fontSize: 10)),
                 visualDensity: VisualDensity.compact,
