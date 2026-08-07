@@ -73,6 +73,22 @@ class AppState extends ChangeNotifier {
     await refreshProjects();
   }
 
+  /// 複数プロジェクトのタグをまとめて更新する（タグ管理の「一括タグ設定」タブ用）。
+  /// tag が空文字ならタグを外す。setProjectTag と違い、定義追加と再読込は1回にまとめる。
+  Future<void> setProjectsTag(List<ManidocProject> targets, String tag) async {
+    if (targets.isEmpty) return;
+    // 未定義タグなら定義に一度だけ追加する
+    if (tag.isNotEmpty && !workspaceTags.any((t) => t.name == tag)) {
+      workspaceTags.add(TagDefinition(name: tag));
+      await workspace!.saveTags(workspaceTags);
+    }
+    for (final p in targets) {
+      p.tag = tag;
+      await workspace!.saveProject(p);
+    }
+    await refreshProjects();
+  }
+
   /// タグ管理画面からの一括保存
   Future<void> saveWorkspaceTags(List<TagDefinition> tags) async {
     workspaceTags = tags;
