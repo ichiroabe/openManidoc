@@ -57,8 +57,20 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
   var jpegQuality = s.exportJpegQuality.toDouble();
   var maxDimension = s.exportMaxDimension;
 
+  const geminiImageModels = ['gemini-2.5-flash-image', 'custom'];
+
   var selectedGeminiModel =
       geminiModels.contains(s.geminiModel) ? s.geminiModel : 'custom';
+  var selectedGeminiImageModel =
+      geminiImageModels.contains(s.geminiImageModel)
+          ? s.geminiImageModel
+          : 'custom';
+
+  // 🔄ボタンでAPIキーから取得したモデル一覧(取得前は上の固定リストを使う)
+  var fetchedGeminiModels = <String>[];
+  var fetchedGeminiImageModels = <String>[];
+  var loadingGeminiModels = false;
+  String? geminiModelsError;
   var selectedOpenaiModel =
       openaiModels.contains(s.openaiModel) ? s.openaiModel : 'custom';
   var selectedClaudeModel =
@@ -101,6 +113,34 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
       setState(() => localModelsError = '$e');
     } finally {
       if (context.mounted) setState(() => loadingLocalModels = false);
+    }
+  }
+
+  // 🔄ボタン: 入力中のAPIキーで使えるモデル一覧を取り直す
+  Future<void> fetchGeminiModels(
+      BuildContext context, StateSetter setState) async {
+    setState(() {
+      loadingGeminiModels = true;
+      geminiModelsError = null;
+    });
+    try {
+      final models = await AiService.listGeminiModels(geminiKeyController.text);
+      if (!context.mounted) return;
+      final current = geminiModelController.text.trim();
+      final currentImage = geminiImageModelController.text.trim();
+      setState(() {
+        fetchedGeminiModels = models.text;
+        fetchedGeminiImageModels = models.image;
+        selectedGeminiModel =
+            models.text.contains(current) ? current : 'custom';
+        selectedGeminiImageModel =
+            models.image.contains(currentImage) ? currentImage : 'custom';
+      });
+    } catch (e) {
+      if (!context.mounted) return;
+      setState(() => geminiModelsError = '$e');
+    } finally {
+      if (context.mounted) setState(() => loadingGeminiModels = false);
     }
   }
 
@@ -211,6 +251,18 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                       border: const OutlineInputBorder(),
                       isDense: true,
                     ),
+                    // キーが変わったら取得済み一覧は当てにならないので破棄
+                    onChanged: (_) {
+                      if (fetchedGeminiModels.isEmpty &&
+                          geminiModelsError == null) {
+                        return;
+                      }
+                      setState(() {
+                        fetchedGeminiModels = [];
+                        fetchedGeminiImageModels = [];
+                        geminiModelsError = null;
+                      });
+                    },
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -221,7 +273,9 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                         child: DropdownButton<String>(
                           value: selectedGeminiModel,
                           isExpanded: true,
-                          items: geminiModels
+                          items: (fetchedGeminiModels.isEmpty
+                                  ? geminiModels
+                                  : [...fetchedGeminiModels, 'custom'])
                               .map((m) => DropdownMenuItem(
                                     value: m,
                                     child: Text(m == 'custom'
@@ -237,6 +291,21 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                           }),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      loadingGeminiModels
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : IconButton(
+                              icon: const Icon(Icons.refresh),
+                              tooltip: L.isJa
+                                  ? 'APIキーで使えるモデル一覧を取得'
+                                  : 'Fetch models available for this API key',
+                              onPressed: () =>
+                                  fetchGeminiModels(context, setState),
+                            ),
                     ],
                   ),
                   if (selectedGeminiModel == 'custom') ...[
@@ -252,15 +321,55 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                     ),
                   ],
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: geminiImageModelController,
-                    decoration: InputDecoration(
-                      labelText: L.t('gemini_image_model'),
-                      hintText: 'gemini-2.5-flash-image',
-                      border: const OutlineInputBorder(),
-                      isDense: true,
-                    ),
+                  Row(
+                    children: [
+                      Text(L.isJa ? '画像モデル: ' : 'Image model: '),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: DropdownButton<String>(
+                          value: selectedGeminiImageModel,
+                          isExpanded: true,
+                          items: (fetchedGeminiImageModels.isEmpty
+                                  ? geminiImageModels
+                                  : [...fetchedGeminiImageModels, 'custom'])
+                              .map((m) => DropdownMenuItem(
+                                    value: m,
+                                    child: Text(m == 'custom'
+                                        ? (L.isJa ? 'カスタム (手入力)' : 'Custom')
+                                        : m),
+                                  ))
+                              .toList(),
+                          onChanged: (v) => setState(() {
+                            selectedGeminiImageModel = v!;
+                            if (v != 'custom') {
+                              geminiImageModelController.text = v;
+                            }
+                          }),
+                        ),
+                      ),
+                    ],
                   ),
+                  if (selectedGeminiImageModel == 'custom') ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: geminiImageModelController,
+                      decoration: InputDecoration(
+                        labelText: L.t('gemini_image_model'),
+                        hintText: 'gemini-2.5-flash-image',
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                  ],
+                  if (geminiModelsError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      geminiModelsError!,
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.error),
+                    ),
+                  ],
                 ] else if (provider == 'ChatGPT') ...[
                   TextField(
                     controller: openaiKeyController,

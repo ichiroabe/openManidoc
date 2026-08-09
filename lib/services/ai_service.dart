@@ -276,6 +276,82 @@ class AiService {
     return names;
   }
 
+  /// Gemini の ListModels。APIキーで実際に使えるモデルを取得し、
+  /// テキスト生成用と画像生成用に振り分けて返す。
+  static Future<({List<String> text, List<String> image})> listGeminiModels(
+      String apiKey) async {
+    final key = apiKey.trim();
+    if (key.isEmpty) {
+      throw AiException('Gemini APIキーを入力してください。');
+    }
+
+    final names = <String>[];
+    String? pageToken;
+    // 1ページあたり数十件。トークンが尽きるまで辿る(暴走防止に5ページで打ち切り)
+    for (var page = 0; page < 5; page++) {
+      final url = Uri.parse(
+          'https://generativelanguage.googleapis.com/v1beta/models'
+          '?key=$key&pageSize=100'
+          '${pageToken == null ? '' : '&pageToken=$pageToken'}');
+      final http.Response response;
+      try {
+        response = await http.get(url).timeout(_listModelsTimeout);
+      } catch (e) {
+        throw AiException('モデル一覧を取得できませんでした。'
+            'ネットワーク接続を確認してください。\n$e');
+      }
+      if (response.statusCode != 200) {
+        throw AiException('モデル一覧を取得できませんでした。'
+            'APIキーが正しいか確認してください。(HTTP ${response.statusCode})');
+      }
+      final json = jsonDecode(utf8.decode(response.bodyBytes));
+      final models = json is Map<String, dynamic> ? json['models'] : null;
+      if (models is List) {
+        for (final item in models) {
+          if (item is! Map<String, dynamic>) continue;
+          // このアプリは generateContent しか呼ばないので、それ以外は候補にしない
+          final methods = item['supportedGenerationMethods'];
+          if (methods is List && !methods.contains('generateContent')) continue;
+          final raw = item['name'];
+          if (raw is! String || raw.isEmpty) continue;
+          names.add(raw.startsWith('models/') ? raw.substring(7) : raw);
+        }
+      }
+      final next = json is Map<String, dynamic> ? json['nextPageToken'] : null;
+      if (next is! String || next.isEmpty) break;
+      pageToken = next;
+    }
+
+    if (names.isEmpty) {
+      throw AiException('このAPIキーで使えるモデルが見つかりませんでした。');
+    }
+
+    // レスポンスに「画像を出力できる」という印が無いため名前で判別するしかない。
+    // 命名が変わったらここが外れる。
+    bool isImage(String n) => n.contains('image');
+    bool isTextChat(String n) =>
+        !isImage(n) &&
+        !n.contains('embedding') &&
+        !n.contains('aqa') &&
+        !n.contains('tts');
+
+    final text = names.where(isTextChat).toList()..sort(_compareModelNames);
+    final image = names.where(isImage).toList()..sort(_compareModelNames);
+    return (text: text, image: image);
+  }
+
+  /// 安定版を先に、preview/experimental や日付入りスナップショットを後ろに寄せる
+  static int _compareModelNames(String a, String b) {
+    bool unstable(String n) =>
+        n.contains('preview') ||
+        n.contains('exp') ||
+        RegExp(r'-\d{2,}$').hasMatch(n);
+    final ua = unstable(a);
+    final ub = unstable(b);
+    if (ua != ub) return ua ? 1 : -1;
+    return a.compareTo(b);
+  }
+
   /// OpenAI互換 /chat/completions への1リクエスト(生のレスポンスJSONを返す)
   Future<Map<String, dynamic>> _localLlmRequest(
       List<Map<String, dynamic>> messages,
