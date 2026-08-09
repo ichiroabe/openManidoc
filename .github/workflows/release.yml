@@ -1,7 +1,13 @@
 name: Build and Release
 
+# リリースの起点は「pubspec.yaml の version」。
+# main に push されたとき、その version に対応する v タグがまだ無ければ
+# 自動でタグを切って Releases まで公開する（タグ push は不要）。
+# 従来どおり手で v タグを push した場合もそのまま動く。
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -10,8 +16,56 @@ permissions:
   contents: write
 
 jobs:
+  # --- リリース対象かどうかの判定 ---
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.decide.outputs.tag }}
+      should_release: ${{ steps.decide.outputs.should_release }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # 既存タグと突き合わせるため履歴とタグを全部取る
+          fetch-depth: 0
+
+      - name: Decide tag
+        id: decide
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            # 手動でタグを push した場合は従来どおり無条件でリリース
+            TAG="${GITHUB_REF#refs/tags/}"
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${TAG} (タグ push) をリリースします"
+            exit 0
+          fi
+
+          # main への push: pubspec.yaml の version からタグ名を決める
+          # 例) "version: 1.7.4+12" -> "v1.7.4"（ビルド番号 +12 は落とす）
+          VERSION="$(sed -n 's/^version:[[:space:]]*\([0-9][0-9.]*\).*/\1/p' pubspec.yaml | head -1)"
+          if [[ -z "${VERSION}" ]]; then
+            echo "::error::pubspec.yaml から version を読み取れませんでした"
+            exit 1
+          fi
+          TAG="v${VERSION}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::${TAG} はリリース済みのためスキップします。配布したい変更がある場合は pubspec.yaml の version を上げて push してください。"
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${TAG} を新規リリースします"
+          fi
+
   # --- Windows Build ---
   build-windows:
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: windows-latest
     steps:
       - name: Checkout code
@@ -43,16 +97,17 @@ jobs:
         run: |
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath open_manidoc_windows.zip
 
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: open_manidoc_windows.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: release-windows
+          path: open_manidoc_windows.zip
+          if-no-files-found: error
 
   # --- macOS Build ---
   build-macos:
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: macos-latest
     steps:
       - name: Checkout code
@@ -79,16 +134,17 @@ jobs:
         run: |
           hdiutil create -volname "openManidoc" -srcfolder build/macos/Build/Products/Release/open_manidoc.app -ov -format UDZO open_manidoc_macos.dmg
 
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: open_manidoc_macos.dmg
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: release-macos
+          path: open_manidoc_macos.dmg
+          if-no-files-found: error
 
   # --- Linux Build ---
   build-linux:
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -120,10 +176,41 @@ jobs:
         run: |
           tar -czf open_manidoc_linux.tar.gz -C build/linux/x64/release/bundle .
 
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: open_manidoc_linux.tar.gz
+          name: release-linux
+          path: open_manidoc_linux.tar.gz
+          if-no-files-found: error
+
+  # --- 3OS 揃ってから Release を1回だけ作る ---
+  # 各ジョブが個別に Release を作ると同時実行で競合するため、ここに集約する。
+  # ビルドが1つでも失敗したら Release は作られない（中途半端な公開を防ぐ）。
+  release:
+    needs: [prepare, build-windows, build-macos, build-linux]
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # main への push 起点の場合、タグはここで初めて作られる（--target で今の commit に固定）
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::notice::${TAG} の Release は既にあるのでアセットを差し替えます"
+            gh release upload "${TAG}" dist/* --repo "${GITHUB_REPOSITORY}" --clobber
+          else
+            gh release create "${TAG}" dist/* \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${TAG}" \
+              --target "${GITHUB_SHA}" \
+              --generate-notes
+          fi
