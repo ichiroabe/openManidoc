@@ -71,6 +71,7 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
   var fetchedGeminiImageModels = <String>[];
   var loadingGeminiModels = false;
   String? geminiModelsError;
+  String? geminiModelsInfo;
   var selectedOpenaiModel =
       openaiModels.contains(s.openaiModel) ? s.openaiModel : 'custom';
   var selectedClaudeModel =
@@ -122,6 +123,7 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
     setState(() {
       loadingGeminiModels = true;
       geminiModelsError = null;
+      geminiModelsInfo = null;
     });
     try {
       final models = await AiService.listGeminiModels(geminiKeyController.text);
@@ -135,6 +137,10 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
             models.text.contains(current) ? current : 'custom';
         selectedGeminiImageModel =
             models.image.contains(currentImage) ? currentImage : 'custom';
+        // 画像0件のときに「取得できたのか失敗したのか」が分からなくなるので件数を出す
+        geminiModelsInfo = L.isJa
+            ? 'テキスト${models.text.length}件 / 画像${models.image.length}件を取得しました'
+            : 'Fetched ${models.text.length} text / ${models.image.length} image models';
       });
     } catch (e) {
       if (!context.mounted) return;
@@ -254,13 +260,15 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                     // キーが変わったら取得済み一覧は当てにならないので破棄
                     onChanged: (_) {
                       if (fetchedGeminiModels.isEmpty &&
-                          geminiModelsError == null) {
+                          geminiModelsError == null &&
+                          geminiModelsInfo == null) {
                         return;
                       }
                       setState(() {
                         fetchedGeminiModels = [];
                         fetchedGeminiImageModels = [];
                         geminiModelsError = null;
+                        geminiModelsInfo = null;
                       });
                     },
                   ),
@@ -359,6 +367,17 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                         border: const OutlineInputBorder(),
                         isDense: true,
                       ),
+                    ),
+                  ],
+                  if (geminiModelsInfo != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      geminiModelsInfo!,
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant),
                     ),
                   ],
                   if (geminiModelsError != null) ...[
