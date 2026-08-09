@@ -25,6 +25,7 @@ class AppSettings {
   String aiProvider; // "Gemini", "ChatGPT", "Claude", "LocalLLM", "None"
   String geminiApiKey; // メモリ上は平文。保存時のみ暗号化される
   String geminiModel;
+  String geminiImageModel; // 画像生成用。テキストとは別モデル
   String openaiApiKey; // 暗号化されて保存される
   String openaiModel;
   String claudeApiKey; // 暗号化されて保存される
@@ -79,6 +80,7 @@ class AppSettings {
     this.aiProvider = 'None',
     this.geminiApiKey = '',
     this.geminiModel = 'gemini-2.5-flash',
+    this.geminiImageModel = 'gemini-2.5-flash-image',
     this.openaiApiKey = '',
     this.openaiModel = 'gpt-4o',
     this.claudeApiKey = '',
@@ -176,6 +178,8 @@ class AppSettings {
         aiProvider: json['aiProvider'] as String? ?? 'None',
         geminiApiKey: _readGeminiKey(json),
         geminiModel: json['geminiModel'] as String? ?? 'gemini-2.5-flash',
+        geminiImageModel:
+            json['geminiImageModel'] as String? ?? 'gemini-2.5-flash-image',
         openaiApiKey: _readOpenaiKey(json),
         openaiModel: json['openaiModel'] as String? ?? 'gpt-4o',
         claudeApiKey: _readClaudeKey(json),
@@ -215,6 +219,7 @@ class AppSettings {
         'aiProvider': aiProvider,
         'geminiApiKeyEnc': CryptoService.encryptText(geminiApiKey),
         'geminiModel': geminiModel,
+        'geminiImageModel': geminiImageModel,
         'openaiApiKeyEnc': CryptoService.encryptText(openaiApiKey),
         'openaiModel': openaiModel,
         'claudeApiKeyEnc': CryptoService.encryptText(claudeApiKey),

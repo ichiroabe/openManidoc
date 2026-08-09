@@ -13,6 +13,8 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
   final s = app.settings;
   final geminiKeyController = TextEditingController(text: s.geminiApiKey);
   final geminiModelController = TextEditingController(text: s.geminiModel);
+  final geminiImageModelController =
+      TextEditingController(text: s.geminiImageModel);
   final openaiKeyController = TextEditingController(text: s.openaiApiKey);
   final openaiModelController = TextEditingController(text: s.openaiModel);
   final claudeKeyController = TextEditingController(text: s.claudeApiKey);
@@ -249,6 +251,16 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                       ),
                     ),
                   ],
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: geminiImageModelController,
+                    decoration: InputDecoration(
+                      labelText: L.t('gemini_image_model'),
+                      hintText: 'gemini-2.5-flash-image',
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
                 ] else if (provider == 'ChatGPT') ...[
                   TextField(
                     controller: openaiKeyController,
@@ -780,6 +792,9 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
       ..geminiModel = geminiModelController.text.trim().isEmpty
           ? 'gemini-2.5-flash'
           : geminiModelController.text.trim()
+      ..geminiImageModel = geminiImageModelController.text.trim().isEmpty
+          ? 'gemini-2.5-flash-image'
+          : geminiImageModelController.text.trim()
       ..openaiApiKey = openaiKeyController.text.trim()
       ..openaiModel = openaiModelController.text.trim().isEmpty
           ? 'gpt-4o'

@@ -439,7 +439,8 @@ class AiService {
     }
     final url = Uri.parse(
         'https://generativelanguage.googleapis.com/v1beta/models/'
-        'gemini-2.5-flash-image:generateContent?key=${settings.geminiApiKey}');
+        '${settings.geminiImageModel}:generateContent'
+        '?key=${settings.geminiApiKey}');
     final body = {
       'contents': [
         {
