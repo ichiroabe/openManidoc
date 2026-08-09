@@ -24,7 +24,7 @@ jobs:
       should_release: ${{ steps.decide.outputs.should_release }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # 既存タグと突き合わせるため履歴とタグを全部取る
           fetch-depth: 0
@@ -69,7 +69,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -98,7 +98,7 @@ jobs:
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath open_manidoc_windows.zip
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-windows
           path: open_manidoc_windows.zip
@@ -111,7 +111,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -135,7 +135,7 @@ jobs:
           hdiutil create -volname "openManidoc" -srcfolder build/macos/Build/Products/Release/open_manidoc.app -ov -format UDZO open_manidoc_macos.dmg
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-macos
           path: open_manidoc_macos.dmg
@@ -148,7 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install build dependencies
         run: |
@@ -177,7 +177,7 @@ jobs:
           tar -czf open_manidoc_linux.tar.gz -C build/linux/x64/release/bundle .
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-linux
           path: open_manidoc_linux.tar.gz
@@ -192,7 +192,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
