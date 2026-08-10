@@ -440,13 +440,18 @@ class AiService {
 
     final mcpInstruction = 'ツールが利用できる。ツール名は「サーバー名__ツール名」形式。'
         '必要に応じてツールを呼び出してタスクを完了すること。'
-        '途中でユーザーに確認を求めず、最後まで完了してから回答すること。';
+        '途中でユーザーに確認を求めず、最後まで完了してから回答すること。'
+        'ツールの結果に書かれていないことを推測で補わないこと。';
+
+    // サーバー自身が宣言した使い方(MCPのinstructions)も渡す。
+    // ツール個別の説明では伝わらない作法がここに入っている。
+    final serverGuide = McpRegistry.instance.instructionsBlock;
+
     final messages = <Map<String, dynamic>>[
       {
         'role': 'system',
-        'content': systemInstruction == null
-            ? mcpInstruction
-            : '$systemInstruction\n\n$mcpInstruction',
+        'content': [?systemInstruction, mcpInstruction, ?serverGuide]
+            .join('\n\n'),
       },
       for (final (role, content) in history)
         {'role': role, 'content': content},
