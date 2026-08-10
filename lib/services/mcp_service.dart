@@ -226,13 +226,21 @@ class McpClient {
 
   void _send(Map<String, dynamic> msg) => _proc.stdin.writeln(jsonEncode(msg));
 
+  /// サーバーが initialize で返した使い方の説明(MCPのinstructions)。
+  /// ツールの説明文だけでは伝わらない「サーバー全体の作法」が入っている
+  /// (例: manidoc-cs の「追記は append_article を使え」「候補一覧が返ったらIDで呼び直せ」)。
+  String? serverInstructions;
+
   /// initialize→tools/list。ツール定義(name/description/inputSchema)を返す。
   Future<List<Map<String, dynamic>>> initializeAndListTools() async {
-    await _request('initialize', {
+    final init = await _request('initialize', {
       'protocolVersion': '2024-11-05',
       'capabilities': {},
       'clientInfo': {'name': 'openManidoc', 'version': '1.0'},
     });
+    final instructions = (init['instructions'] as String?)?.trim();
+    serverInstructions =
+        (instructions != null && instructions.isNotEmpty) ? instructions : null;
     _notify('notifications/initialized');
     final res = await _request('tools/list');
     return (res['tools'] as List? ?? []).cast<Map<String, dynamic>>();
@@ -271,11 +279,25 @@ class McpRegistry {
   /// 起動に失敗したサーバーの警告(チャット画面等で表示できる)
   final startupWarnings = <String>[];
 
+  /// 各サーバーが initialize で返した使い方の説明(サーバー名→本文)
+  final serverInstructions = <String, String>{};
+
+  /// システムプロンプトに足せる形にまとめたもの。無ければ null。
+  /// サーバーが「このツールをこう使え」と書いてくれているのに捨てていると、
+  /// 小型モデルは上書きと追記の区別がつかないまま本文を壊す。
+  String? get instructionsBlock {
+    if (serverInstructions.isEmpty) return null;
+    return serverInstructions.entries
+        .map((e) => '【ワークスペース ${e.key} の使い方】\n${e.value}')
+        .join('\n\n');
+  }
+
   /// 名前空間付きツール一覧(未起動なら設定を読んで全サーバーを起動する)。
   /// 設定ファイルが無い/空の場合は空リストを返す(エラーにしない)。
   Future<List<Map<String, dynamic>>> ensureStarted() async {
     if (_started) return _tools;
     startupWarnings.clear();
+    serverInstructions.clear();
     final tools = <Map<String, dynamic>>[];
     final raw = await McpConfig.readRaw();
     if (raw != null && raw.trim().isNotEmpty) {
@@ -294,6 +316,9 @@ class McpRegistry {
           await client.start();
           final serverTools = await client.initializeAndListTools();
           _clients[cfg.name] = client;
+          if (client.serverInstructions case final s?) {
+            serverInstructions[cfg.name] = s;
+          }
           final exposed = cfg.allowedTools == null
               ? serverTools
               : serverTools
