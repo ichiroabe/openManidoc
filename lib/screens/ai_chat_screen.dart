@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:markdown_widget/markdown_widget.dart';
 
 import '../app_state.dart';
@@ -21,6 +22,24 @@ class AiChatScreen extends StatefulWidget {
 }
 
 class _AiChatScreenState extends State<AiChatScreen> {
+  /// Enter=送信 / Shift+Enter=改行。
+  /// 日本語入力の変換確定でもEnterが飛んでくるので、変換中(composing)は送信しない。
+  KeyEventResult _onInputKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event.logicalKey != LogicalKeyboardKey.enter &&
+        event.logicalKey != LogicalKeyboardKey.numpadEnter) {
+      return KeyEventResult.ignored;
+    }
+    if (HardwareKeyboard.instance.isShiftPressed) {
+      return KeyEventResult.ignored; // 改行はTextFieldに任せる
+    }
+    if (_inputController.value.composing.isValid) {
+      return KeyEventResult.ignored; // IMEの変換確定を送信と誤認しない
+    }
+    _send();
+    return KeyEventResult.handled;
+  }
+
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
   final List<(String, String)> _history = []; // (role, content)
@@ -356,16 +375,25 @@ class _AiChatScreenState extends State<AiChatScreen> {
           Padding(
             padding: const EdgeInsets.all(12),
             child: Row(
+              // 入力欄が伸びるので、送信ボタンは下端に揃える
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: _inputController,
-                    decoration: InputDecoration(
-                      hintText: L.t('ai_message_hint'),
-                      border: const OutlineInputBorder(),
-                      isDense: true,
+                  child: Focus(
+                    onKeyEvent: _onInputKey,
+                    child: TextField(
+                      controller: _inputController,
+                      decoration: InputDecoration(
+                        hintText: L.t('ai_message_hint'),
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      // 1行から始まり、入力に応じて8行まで伸びる。それ以上は内部でスクロール
+                      minLines: 1,
+                      maxLines: 8,
+                      keyboardType: TextInputType.multiline,
+                      textInputAction: TextInputAction.newline,
                     ),
-                    onSubmitted: (_) => _send(),
                   ),
                 ),
                 const SizedBox(width: 8),
