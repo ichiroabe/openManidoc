@@ -95,10 +95,48 @@ class McpConfig {
   static String? validate(String raw) {
     try {
       parse(raw);
+      parseGlobalAllowedTools(raw);
       return null;
     } catch (e) {
       return e.toString().replaceFirst('FormatException: ', '');
     }
+  }
+
+  /// ルート直下の "allowedTools" を読む(Claude系と同じ書式)。
+  ///
+  ///   "allowedTools": ["mcp__manidoc-cs__list_*", "mcp__other__*"]
+  ///
+  /// サーバー定義の中に書く独自形式(素のツール名)と併用でき、両方ある場合は
+  /// 両方を満たすツールだけ公開する。未指定(null)なら制限しない。
+  /// 設定ファイルを Claude Desktop とそのままやり取りできるようにするための対応。
+  static List<String>? parseGlobalAllowedTools(String raw) {
+    final dynamic root;
+    try {
+      root = jsonDecode(raw);
+    } on FormatException {
+      return null; // 構文エラーは parse() 側で報告される
+    }
+    if (root is! Map<String, dynamic>) return null;
+    final allowed = root['allowedTools'];
+    if (allowed == null) return null;
+    if (allowed is! List) {
+      throw const FormatException('ルートの "allowedTools" は配列である必要があります');
+    }
+    return allowed.map((e) => e.toString()).toList();
+  }
+
+  /// 「mcp__サーバー名__ツール名」がパターン群のどれかに一致するか。
+  /// パターン中の `*` は任意の文字列にマッチする。
+  static bool matchesGlobalAllowed(
+      List<String>? patterns, String server, String tool) {
+    if (patterns == null) return true;
+    final target = 'mcp__${server}__$tool';
+    for (final p in patterns) {
+      final re = RegExp(
+          '^${p.split('*').map(RegExp.escape).join('.*')}\$');
+      if (re.hasMatch(target)) return true;
+    }
+    return false;
   }
 
   /// 生テキストからサーバー定義一覧を得る。不正ならFormatException。
@@ -276,6 +314,9 @@ class McpRegistry {
   List<Map<String, dynamic>> _tools = [];
   bool _started = false;
 
+  /// ルート直下の allowedTools(Claude系書式)。null なら制限なし。
+  List<String>? _globalAllowed;
+
   /// 起動に失敗したサーバーの警告(チャット画面等で表示できる)
   final startupWarnings = <String>[];
 
@@ -304,6 +345,7 @@ class McpRegistry {
       final List<McpServerConfig> configs;
       try {
         configs = McpConfig.parse(raw);
+        _globalAllowed = McpConfig.parseGlobalAllowedTools(raw);
       } catch (e) {
         startupWarnings.add('mcp_servers.json が不正です: $e');
         _tools = [];
@@ -319,11 +361,16 @@ class McpRegistry {
           if (client.serverInstructions case final s?) {
             serverInstructions[cfg.name] = s;
           }
-          final exposed = cfg.allowedTools == null
-              ? serverTools
-              : serverTools
-                  .where((t) => cfg.allowedTools!.contains(t['name']))
-                  .toList();
+          // サーバー定義内の allowedTools(素の名前) と
+          // ルート直下の allowedTools(mcp__サーバー__ツール) の両方を満たすものだけ公開する
+          final exposed = serverTools.where((t) {
+            final name = t['name'] as String? ?? '';
+            if (cfg.allowedTools != null &&
+                !cfg.allowedTools!.contains(name)) {
+              return false;
+            }
+            return McpConfig.matchesGlobalAllowed(_globalAllowed, cfg.name, name);
+          }).toList();
           for (final t in exposed) {
             tools.add({
               ...t,
@@ -352,10 +399,16 @@ class McpRegistry {
     final (server, tool) = split;
     final client = _clients[server];
     if (client == null) return '[エラー] 未知のMCPサーバーです: $server';
-    // 許可リスト外のツールを(LLMが名前を推測して)呼ぼうとした場合は拒否
+    // 許可リスト外のツールを(LLMが名前を推測して)呼ぼうとした場合は拒否。
+    // 一覧から消えていても、キャッシュされた古い一覧から呼ばれることがあるため
+    // 呼び出し側でも必ず確認する。
     final allowed = client.config.allowedTools;
     if (allowed != null && !allowed.contains(tool)) {
       return '[拒否] ツール "$tool" は許可されていません(allowedTools参照)';
+    }
+    if (!McpConfig.matchesGlobalAllowed(_globalAllowed, server, tool)) {
+      return '[拒否] ツール "mcp__${server}__$tool" は許可されていません'
+          '(ルートの allowedTools 参照)';
     }
     try {
       return await client.callTool(tool, args);
