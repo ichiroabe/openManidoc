@@ -522,11 +522,17 @@ class AiService {
         'https://generativelanguage.googleapis.com/v1beta/models/'
         '${settings.geminiImageModel}:generateContent'
         '?key=${settings.geminiApiKey}');
+    // ユーザー入力(prompt)はそのまま「題材」として渡し、これは画像生成の依頼だと
+    // 明示する。こうすると「猫を」「プロンプト設計の基本構造」のような概念語でも
+    // モデルが文章解説ではなく画像を生成する(語尾の文法補完は不要)。
+    final imagePrompt =
+        '次の内容を表現する画像を1枚生成してください。説明文やテキストは出力しないでください。\n\n'
+        '内容: $prompt';
     final body = {
       'contents': [
         {
           'parts': [
-            {'text': prompt}
+            {'text': imagePrompt}
           ]
         }
       ],
