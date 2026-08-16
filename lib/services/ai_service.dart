@@ -530,6 +530,11 @@ class AiService {
           ]
         }
       ],
+      // 画像生成モデルは出力モダリティの明示が必要。省略すると画像が返らず
+      // テキストのみ・または400エラーになる。
+      'generationConfig': {
+        'responseModalities': ['IMAGE'],
+      },
     };
     final response = await http
         .post(url,
@@ -540,11 +545,29 @@ class AiService {
       throw AiException(_geminiError(response.statusCode, response.body));
     }
     final json = jsonDecode(utf8.decode(response.bodyBytes));
-    final parts = json?['candidates']?[0]?['content']?['parts'] as List?;
+    final candidate = json?['candidates']?[0];
+    final parts = candidate?['content']?['parts'] as List?;
     for (final part in parts ?? []) {
-      final data = part['inlineData']?['data'] as String?;
-      if (data != null) return base64Decode(data);
+      // REST v1beta は camelCase(inlineData)だが念のため snake_case も見る
+      final data = (part['inlineData'] ?? part['inline_data'])?['data']
+          as String?;
+      if (data != null && data.isNotEmpty) return base64Decode(data);
     }
-    throw AiException('Geminiから画像データを取得できませんでした。');
+    // 画像が無いときは、モデルが返した理由(安全ブロックやテキスト説明)を拾って
+    // 「取得できませんでした」だけで終わらせない。
+    final reason = candidate?['finishReason'] as String?;
+    final textPart = parts
+        ?.map((p) => p['text'] as String?)
+        .firstWhere((t) => t != null && t.isNotEmpty, orElse: () => null);
+    final blockReason = json?['promptFeedback']?['blockReason'] as String?;
+    final detail = [
+      if (blockReason != null) 'ブロック理由: $blockReason',
+      if (reason != null && reason != 'STOP') '終了理由: $reason',
+      ?textPart,
+    ].join(' / ');
+    throw AiException('Geminiから画像データを取得できませんでした。'
+        '${detail.isEmpty ? '' : '\n$detail'}\n'
+        '画像生成対応モデル(例: gemini-2.5-flash-image)が'
+        '「⚙ 設定」で選ばれているか確認してください。');
   }
 }
