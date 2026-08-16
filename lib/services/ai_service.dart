@@ -530,10 +530,12 @@ class AiService {
           ]
         }
       ],
-      // 画像生成モデルは出力モダリティの明示が必要。省略すると画像が返らず
-      // テキストのみ・または400エラーになる。
+      // 画像生成モデルは出力モダリティの明示が必要。省略すると画像が返らない。
+      // Gemini 3系(gemini-3-pro-image 等)は思考テキストも出すため TEXT を
+      // 含めないと finishReason=NO_IMAGE になり画像を返さない。IMAGE単独は
+      // gemini-2.5-flash-image では通るが 3系では不可。両方指定が安全。
       'generationConfig': {
-        'responseModalities': ['IMAGE'],
+        'responseModalities': ['TEXT', 'IMAGE'],
       },
     };
     final response = await http
@@ -547,12 +549,16 @@ class AiService {
     final json = jsonDecode(utf8.decode(response.bodyBytes));
     final candidate = json?['candidates']?[0];
     final parts = candidate?['content']?['parts'] as List?;
+    // Gemini 3系は思考過程で中間画像を複数返すことがある。最後の画像パートが
+    // 最終成果物なので、最初ではなく最後の inlineData を採用する。
+    String? lastImage;
     for (final part in parts ?? []) {
       // REST v1beta は camelCase(inlineData)だが念のため snake_case も見る
       final data = (part['inlineData'] ?? part['inline_data'])?['data']
           as String?;
-      if (data != null && data.isNotEmpty) return base64Decode(data);
+      if (data != null && data.isNotEmpty) lastImage = data;
     }
+    if (lastImage != null) return base64Decode(lastImage);
     // 画像が無いときは、モデルが返した理由(安全ブロックやテキスト説明)を拾って
     // 「取得できませんでした」だけで終わらせない。
     final reason = candidate?['finishReason'] as String?;
