@@ -276,6 +276,18 @@ class AiService {
     return names;
   }
 
+  /// ListModels のURL。ページトークンは `=` や `+` を含むことがあるので、
+  /// 文字列連結ではなく queryParameters で組んで確実にエスケープする。
+  static Uri geminiModelsUri(String key, [String? pageToken]) => Uri.https(
+        'generativelanguage.googleapis.com',
+        '/v1beta/models',
+        {
+          'key': key,
+          'pageSize': '100',
+          if (pageToken != null && pageToken.isNotEmpty) 'pageToken': pageToken,
+        },
+      );
+
   /// Gemini の ListModels。APIキーで実際に使えるモデルを取得し、
   /// テキスト生成用と画像生成用に振り分けて返す。
   static Future<({List<String> text, List<String> image})> listGeminiModels(
@@ -289,20 +301,19 @@ class AiService {
     String? pageToken;
     // 1ページあたり数十件。トークンが尽きるまで辿る(暴走防止に5ページで打ち切り)
     for (var page = 0; page < 5; page++) {
-      final url = Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models'
-          '?key=$key&pageSize=100'
-          '${pageToken == null ? '' : '&pageToken=$pageToken'}');
       final http.Response response;
       try {
-        response = await http.get(url).timeout(_listModelsTimeout);
+        response = await http
+            .get(geminiModelsUri(key, pageToken))
+            .timeout(_listModelsTimeout);
       } catch (e) {
         throw AiException('モデル一覧を取得できませんでした。'
             'ネットワーク接続を確認してください。\n$e');
       }
       if (response.statusCode != 200) {
-        throw AiException('モデル一覧を取得できませんでした。'
-            'APIキーが正しいか確認してください。(HTTP ${response.statusCode})');
+        // APIが返した理由を隠さない(キー以外の原因もあるため)
+        throw AiException('モデル一覧を取得できませんでした(HTTP '
+            '${response.statusCode})。\n${geminiErrorMessage(response.body)}');
       }
       final json = jsonDecode(utf8.decode(response.bodyBytes));
       final models = json is Map<String, dynamic> ? json['models'] : null;
