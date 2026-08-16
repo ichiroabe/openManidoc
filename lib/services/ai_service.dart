@@ -522,14 +522,27 @@ class AiService {
         'https://generativelanguage.googleapis.com/v1beta/models/'
         '${settings.geminiImageModel}:generateContent'
         '?key=${settings.geminiApiKey}');
+    // ユーザー入力(prompt)はそのまま「題材」として渡し、これは画像生成の依頼だと
+    // 明示する。こうすると「猫を」「プロンプト設計の基本構造」のような概念語でも
+    // モデルが文章解説ではなく画像を生成する(語尾の文法補完は不要)。
+    final imagePrompt =
+        '次の内容を表現する画像を1枚生成してください。説明文やテキストは出力しないでください。\n\n'
+        '内容: $prompt';
     final body = {
       'contents': [
         {
           'parts': [
-            {'text': prompt}
+            {'text': imagePrompt}
           ]
         }
       ],
+      // 画像生成モデルは出力モダリティの明示が必要。省略すると画像が返らない。
+      // Gemini 3系(gemini-3-pro-image 等)は思考テキストも出すため TEXT を
+      // 含めないと finishReason=NO_IMAGE になり画像を返さない。IMAGE単独は
+      // gemini-2.5-flash-image では通るが 3系では不可。両方指定が安全。
+      'generationConfig': {
+        'responseModalities': ['TEXT', 'IMAGE'],
+      },
     };
     final response = await http
         .post(url,
@@ -540,11 +553,33 @@ class AiService {
       throw AiException(_geminiError(response.statusCode, response.body));
     }
     final json = jsonDecode(utf8.decode(response.bodyBytes));
-    final parts = json?['candidates']?[0]?['content']?['parts'] as List?;
+    final candidate = json?['candidates']?[0];
+    final parts = candidate?['content']?['parts'] as List?;
+    // Gemini 3系は思考過程で中間画像を複数返すことがある。最後の画像パートが
+    // 最終成果物なので、最初ではなく最後の inlineData を採用する。
+    String? lastImage;
     for (final part in parts ?? []) {
-      final data = part['inlineData']?['data'] as String?;
-      if (data != null) return base64Decode(data);
+      // REST v1beta は camelCase(inlineData)だが念のため snake_case も見る
+      final data = (part['inlineData'] ?? part['inline_data'])?['data']
+          as String?;
+      if (data != null && data.isNotEmpty) lastImage = data;
     }
-    throw AiException('Geminiから画像データを取得できませんでした。');
+    if (lastImage != null) return base64Decode(lastImage);
+    // 画像が無いときは、モデルが返した理由(安全ブロックやテキスト説明)を拾って
+    // 「取得できませんでした」だけで終わらせない。
+    final reason = candidate?['finishReason'] as String?;
+    final textPart = parts
+        ?.map((p) => p['text'] as String?)
+        .firstWhere((t) => t != null && t.isNotEmpty, orElse: () => null);
+    final blockReason = json?['promptFeedback']?['blockReason'] as String?;
+    final detail = [
+      if (blockReason != null) 'ブロック理由: $blockReason',
+      if (reason != null && reason != 'STOP') '終了理由: $reason',
+      ?textPart,
+    ].join(' / ');
+    throw AiException('Geminiから画像データを取得できませんでした。'
+        '${detail.isEmpty ? '' : '\n$detail'}\n'
+        '画像生成対応モデル(例: gemini-2.5-flash-image)が'
+        '「⚙ 設定」で選ばれているか確認してください。');
   }
 }

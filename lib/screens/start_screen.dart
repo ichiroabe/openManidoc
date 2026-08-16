@@ -79,6 +79,12 @@ class _StartScreenState extends State<StartScreen> {
   bool _selectionMode = false;
   final Set<String> _selectedIds = {};
 
+  /// タイル色のコピー＆ペースト用に保持する色(セッション内・空文字=既定色)。
+  /// null の間は未コピーで、貼り付けメニューを無効化する。
+  String? _copiedFore;
+  String? _copiedBack;
+  bool get _hasCopiedColor => _copiedFore != null || _copiedBack != null;
+
   @override
   void dispose() {
     _globalSearchController.dispose();
@@ -491,6 +497,27 @@ class _StartScreenState extends State<StartScreen> {
     if (result == null) return;
     await app.setProjectsCardColor([project],
         fore: result.fore, back: result.back);
+  }
+
+  /// タイルの前景/背景色を覚える(コピー)。空文字=既定色もそのまま保持する。
+  void _copyCardColor(ManidocProject project) {
+    setState(() {
+      _copiedFore = project.cardForeColor;
+      _copiedBack = project.cardBackColor;
+    });
+    _snack(L.t('color_copied'));
+  }
+
+  /// 覚えた色を対象タイルへ貼り付ける。選択モードで複数選択中なら全選択へ適用。
+  Future<void> _pasteCardColor(ManidocProject project) async {
+    if (!_hasCopiedColor) return;
+    // 選択モードで操作対象タイル自身も選択中なら、選択した全タイルへ適用。
+    final targets = _selectionMode && _selectedIds.contains(project.id)
+        ? _selectedProjects
+        : [project];
+    await app.setProjectsCardColor(targets,
+        fore: _copiedFore, back: _copiedBack);
+    _snack(L.t('color_pasted', [targets.length]));
   }
 
   Future<void> _editTag(ManidocProject project) async {
@@ -1250,6 +1277,10 @@ class _StartScreenState extends State<StartScreen> {
                             _editTag(project);
                           case 'color':
                             _editCardColor(project);
+                          case 'copyColor':
+                            _copyCardColor(project);
+                          case 'pasteColor':
+                            _pasteCardColor(project);
                           case 'html':
                             _exportHtml(project);
                           case 'md':
@@ -1288,6 +1319,13 @@ class _StartScreenState extends State<StartScreen> {
                           PopupMenuItem(
                               value: 'color',
                               child: Text(L.t('menu_card_color'))),
+                          PopupMenuItem(
+                              value: 'copyColor',
+                              child: Text(L.t('menu_copy_color'))),
+                          PopupMenuItem(
+                              value: 'pasteColor',
+                              enabled: _hasCopiedColor,
+                              child: Text(L.t('menu_paste_color'))),
                           const PopupMenuDivider(),
                           PopupMenuItem(
                               value: 'html', child: Text(L.t('menu_html'))),
