@@ -63,6 +63,10 @@ class AppSettings {
   /// ○をクリック→カラーピッカーで選んだ色がスロットに保存される。
   List<String> bgPaletteColors;
 
+  /// プロジェクトタイルの色ピッカーで使うユーザー定義パレット(hex 8スロット)。
+  /// bgPaletteColors とは独立(用途が違うため混ざらないようにする)。
+  List<String> cardPaletteColors;
+
   /// 既定パレット: 白・黒 + パステル6色
   static const List<String> defaultBgPalette = [
     '#ffffff', // 白
@@ -102,8 +106,10 @@ class AppSettings {
     this.exportMaxDimension = 1920,
     this.articleFontSize = 14.0,
     List<String>? bgPaletteColors,
+    List<String>? cardPaletteColors,
     List<ReadingRule>? readingDict,
   })  : bgPaletteColors = _normalizePalette(bgPaletteColors),
+        cardPaletteColors = _normalizePalette(cardPaletteColors),
         readingDict = readingDict ?? defaultReadingDict();
 
   /// 既定の読み上げ辞書: 波ダッシュ(〜)/全角チルダ(～)は読まれないため「から」へ。
@@ -212,6 +218,9 @@ class AppSettings {
         bgPaletteColors: (json['bgPaletteColors'] as List<dynamic>?)
             ?.map((e) => e.toString())
             .toList(),
+        cardPaletteColors: (json['cardPaletteColors'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -242,6 +251,7 @@ class AppSettings {
         'exportMaxDimension': exportMaxDimension,
         'articleFontSize': articleFontSize,
         'bgPaletteColors': bgPaletteColors,
+        'cardPaletteColors': cardPaletteColors,
       };
 
   static const _prefKey = 'appSettingsJson';

@@ -4,6 +4,7 @@ import 'dart:io';
 import '../models/manidoc_node.dart';
 import '../models/manidoc_project.dart';
 import '../models/tag_definition.dart';
+import 'color_utils.dart';
 import 'html_exporter.dart';
 import 'workspace_service.dart';
 
@@ -113,6 +114,8 @@ class PortalExporter {
         thumb: thumbName,
         tag: tag,
         updated: project.lastModifiedAt.toLocal().toString().substring(0, 16),
+        foreColor: project.cardForeColor,
+        backColor: project.cardBackColor,
       ));
     }
 
@@ -156,6 +159,8 @@ class PortalExporter {
           thumbRef: e.thumb != null ? './${e.thumb}' : null,
           title: e.name,
           subtitle: '更新: ${e.updated}',
+          foreColor: e.foreColor,
+          backColor: e.backColor,
         ));
       }
       final body = '''
@@ -176,6 +181,8 @@ $tagTiles$untagged</div>
           subtitle: e.tag.isEmpty
               ? '更新: ${e.updated}'
               : '${e.tag} | 更新: ${e.updated}',
+          foreColor: e.foreColor,
+          backColor: e.backColor,
         ));
       }
       final body = '''
@@ -197,26 +204,47 @@ $cards</div>
       : _esc(title);
 
   // カード1枚(プロジェクト/タグタイル共通)
+  // foreColor/backColor はアプリ側のタイル色。未設定ならテーマCSSの見た目のまま。
   String _cardHtml({
     required String href,
     required String? thumbRef,
     required String title,
     required String subtitle,
+    String foreColor = '',
+    String backColor = '',
   }) {
     final initial = title.isNotEmpty ? title.substring(0, 1) : 'P';
     final thumb = thumbRef != null
         ? '<img src="$thumbRef" class="thumbnail" alt="${_escAttr(title)}">'
         : '<div class="no-image">${_esc(initial)}</div>';
+
+    // 背景だけ指定された場合は、アプリのカードと同じく背景から文字色を決める
+    final back = colorFromHex(backColor);
+    final fore =
+        colorFromHex(foreColor) ?? (back != null ? contrastForegroundFor(back) : null);
+    final foreHex = fore == null ? null : hexFromColor(fore);
+    final cardStyle = StringBuffer();
+    if (back != null) {
+      cardStyle.write(
+          'background:${hexFromColor(back)};border-radius:12px;padding:8px;');
+    }
+    if (foreHex != null) cardStyle.write('color:$foreHex;');
+    final cardAttr =
+        cardStyle.isEmpty ? '' : ' style="${cardStyle.toString()}"';
+    final titleAttr = foreHex == null ? '' : ' style="color:$foreHex"';
+    final subAttr =
+        foreHex == null ? '' : ' style="color:$foreHex;opacity:.75"';
+
     final sub = subtitle.isEmpty
         ? ''
-        : '<div class="subtitle">${_esc(subtitle)}</div>';
+        : '<div class="subtitle"$subAttr>${_esc(subtitle)}</div>';
     return '''
-<a class="card" href="$href">
+<a class="card" href="$href"$cardAttr>
   <div class="thumbnail-container">
     $thumb
   </div>
   <div class="details"><div class="meta">
-    <div class="title">${_esc(title)}</div>
+    <div class="title"$titleAttr>${_esc(title)}</div>
     $sub
   </div></div>
 </a>''';
@@ -233,6 +261,8 @@ $cards</div>
         thumbRef: e.thumb != null ? '../${e.thumb}' : null,
         title: e.name,
         subtitle: '更新: ${e.updated}',
+        foreColor: e.foreColor,
+        backColor: e.backColor,
       ));
     }
     final siteTitleLine = siteTitle.trim().isEmpty
@@ -403,11 +433,15 @@ class _Info {
   final String? thumb; // ルート直下のサムネイルファイル名(無ければnull)
   final String tag;
   final String updated;
+  final String foreColor; // タイルの文字色 '#rrggbb'(未設定は空)
+  final String backColor; // タイルの背景色 '#rrggbb'(未設定は空)
   _Info({
     required this.name,
     required this.safeName,
     required this.thumb,
     required this.tag,
     required this.updated,
+    this.foreColor = '',
+    this.backColor = '',
   });
 }

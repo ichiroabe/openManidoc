@@ -5,6 +5,7 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../app_state.dart';
 import '../l10n/strings.dart';
 import '../services/ai_service.dart';
+import '../services/color_utils.dart' as cu;
 import '../services/html_exporter.dart';
 
 /// 🎨 テーマジェネレータ(本家Manidoc互換)。
@@ -830,25 +831,8 @@ ${keys.join(', ')}
   }
 }
 
-String _hex(Color c) =>
-    '#${((c.r * 255).round() << 16 | (c.g * 255).round() << 8 | (c.b * 255).round()).toRadixString(16).padLeft(6, '0')}';
+// 実体は services/color_utils.dart(タイル色ピッカーと共通)。
+// flutter_colorpicker が同名の関数を公開しているため、prefix付きで呼ぶ。
+String _hex(Color c) => cu.hexFromColor(c);
 
-Color? _parseHex(String v) {
-  var s = v.replaceAll('#', '').trim();
-  if (s.length != 6) {
-    if (s.startsWith('rgba') || s.startsWith('rgb')) {
-      final reg = RegExp(r'rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)');
-      final match = reg.firstMatch(s);
-      if (match != null) {
-        final r = int.tryParse(match.group(1) ?? '0') ?? 0;
-        final g = int.tryParse(match.group(2) ?? '0') ?? 0;
-        final b = int.tryParse(match.group(3) ?? '0') ?? 0;
-        return Color.fromARGB(255, r, g, b);
-      }
-    }
-    return null;
-  }
-  final n = int.tryParse(s, radix: 16);
-  if (n == null) return null;
-  return Color(0xFF000000 | n);
-}
+Color? _parseHex(String v) => cu.colorFromHex(v);

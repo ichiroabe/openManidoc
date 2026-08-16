@@ -15,6 +15,11 @@ class ManidocProject {
   int sortOrder;
   String themeCssFileName;
   String tag;
+
+  /// 一覧タイルの文字色 / 背景色。'#RRGGBB'、空文字なら既定(テーマ色)。
+  /// 本家Manidocは知らないフィールドなので、空のときはJSONに出力しない。
+  String cardForeColor;
+  String cardBackColor;
   List<ManidocNode> rootNodes;
 
   ManidocProject({
@@ -27,6 +32,8 @@ class ManidocProject {
     this.sortOrder = 0,
     this.themeCssFileName = '',
     this.tag = '',
+    this.cardForeColor = '',
+    this.cardBackColor = '',
     List<ManidocNode>? rootNodes,
   })  : id = id ?? _uuid.v4(),
         createdAt = createdAt ?? DateTime.now(),
@@ -46,21 +53,29 @@ class ManidocProject {
         sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
         themeCssFileName: json['themeCssFileName'] as String? ?? '',
         tag: json['tag'] as String? ?? '',
+        cardForeColor: json['cardForeColor'] as String? ?? '',
+        cardBackColor: json['cardBackColor'] as String? ?? '',
         rootNodes: (json['rootNodes'] as List<dynamic>? ?? [])
             .map((e) => ManidocNode.fromJson(e as Map<String, dynamic>))
             .toList(),
       );
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'createdAt': createdAt.toIso8601String(),
-        'lastModifiedAt': lastModifiedAt.toIso8601String(),
-        'description': description,
-        'lastSelectedNodeId': lastSelectedNodeId,
-        'sortOrder': sortOrder,
-        'themeCssFileName': themeCssFileName,
-        'tag': tag,
-        'rootNodes': rootNodes.map((e) => e.toJson()).toList(),
-      };
+  Map<String, dynamic> toJson() {
+    final json = <String, dynamic>{
+      'id': id,
+      'name': name,
+      'createdAt': createdAt.toIso8601String(),
+      'lastModifiedAt': lastModifiedAt.toIso8601String(),
+      'description': description,
+      'lastSelectedNodeId': lastSelectedNodeId,
+      'sortOrder': sortOrder,
+      'themeCssFileName': themeCssFileName,
+      'tag': tag,
+    };
+    // 未設定なら出力しない(本家Manidocが読むJSONを不要に汚さない)
+    if (cardForeColor.isNotEmpty) json['cardForeColor'] = cardForeColor;
+    if (cardBackColor.isNotEmpty) json['cardBackColor'] = cardBackColor;
+    json['rootNodes'] = rootNodes.map((e) => e.toJson()).toList();
+    return json;
+  }
 }

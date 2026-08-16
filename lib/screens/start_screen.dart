@@ -2,8 +2,10 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../dialogs/card_color_dialog.dart';
 import '../dialogs/settings_dialog.dart';
 import '../dialogs/tag_dialog.dart';
 import '../dialogs/tag_manager_dialog.dart';
@@ -11,6 +13,7 @@ import '../l10n/strings.dart';
 import '../models/manidoc_node.dart';
 import '../models/manidoc_project.dart';
 import '../services/backup_service.dart';
+import '../services/color_utils.dart';
 import '../services/exports_manager.dart';
 import '../services/html_exporter.dart';
 import '../services/html_import.dart';
@@ -19,6 +22,26 @@ import '../services/portal_exporter.dart';
 import '../widgets/immersive_project_view.dart';
 import 'ai_chat_screen.dart';
 import 'editor_screen.dart';
+
+/// 一括操作のショートカット用Intent
+class _SelectAllProjectsIntent extends Intent {
+  const _SelectAllProjectsIntent();
+}
+
+class _ClearProjectSelectionIntent extends Intent {
+  const _ClearProjectSelectionIntent();
+}
+
+/// 条件付きで有効になるAction。無効の間はキーを消費しないので、
+/// テキスト入力中のCtrl+A(文字の全選択)はそのまま生きる。
+class _ConditionalCallbackAction<T extends Intent> extends CallbackAction<T> {
+  _ConditionalCallbackAction({required super.onInvoke, required this.enabled});
+
+  final bool Function() enabled;
+
+  @override
+  bool get isActionEnabled => enabled();
+}
 
 /// 検索ヒット(全プロジェクト横断)
 class _GlobalHit {
@@ -48,9 +71,18 @@ class _StartScreenState extends State<StartScreen> {
   final _globalSearchController = TextEditingController();
   List<_GlobalHit> _globalHits = [];
 
+  /// ショートカットを受けるフォーカスノード。余白クリックでここへ戻すことで
+  /// 検索欄からフォーカスを外しつつ、キーイベントがこの画面に届く状態を保つ。
+  final _shortcutFocus = FocusNode(debugLabel: 'startScreenShortcuts');
+
+  /// 一括操作(削除/色設定)のための選択モード。ONの間はカードのタップが選択になる。
+  bool _selectionMode = false;
+  final Set<String> _selectedIds = {};
+
   @override
   void dispose() {
     _globalSearchController.dispose();
+    _shortcutFocus.dispose();
     super.dispose();
   }
 
@@ -347,6 +379,120 @@ class _StartScreenState extends State<StartScreen> {
     if (ok == true) await app.deleteProject(project);
   }
 
+  // ---------- 選択モード(一括削除 / 一括色設定) ----------
+
+  List<ManidocProject> get _selectedProjects =>
+      app.projects.where((p) => _selectedIds.contains(p.id)).toList();
+
+  void _toggleSelect(ManidocProject project) => setState(() {
+        if (!_selectedIds.remove(project.id)) _selectedIds.add(project.id);
+      });
+
+  void _exitSelection() => setState(() {
+        _selectionMode = false;
+        _selectedIds.clear();
+      });
+
+  /// 一括削除。削除前に対象を1件ずつZIPバックアップしてから消す(AppState側で実施)。
+  Future<void> _bulkDelete() async {
+    final targets = _selectedProjects;
+    if (targets.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(L.t('bulk_delete_title')),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(L.t('bulk_delete_confirm', [targets.length])),
+              const SizedBox(height: 8),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final p in targets)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Text('・${p.name}',
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(L.t('cancel'))),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
+            child: Text(L.t('bulk_delete_do', [targets.length])),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    _snack(L.t('bulk_delete_running', [targets.length]));
+    final result = await app.deleteProjects(targets);
+    if (!mounted) return;
+    setState(() => _selectedIds.clear());
+    if (result.failed.isEmpty) {
+      _snack(L.t('bulk_delete_done', [result.deleted.length]),
+          folderPath: result.backupDir);
+    } else {
+      final first = result.failed.entries.first;
+      _snack(
+          L.t('bulk_delete_partial', [
+            result.deleted.length,
+            result.failed.length,
+            '${first.key}: ${first.value}'
+          ]),
+          folderPath: result.backupDir);
+    }
+  }
+
+  /// 一括色設定。初期値は選択の先頭プロジェクトの色。
+  Future<void> _bulkColor() async {
+    final targets = _selectedProjects;
+    if (targets.isEmpty) return;
+    final first = targets.first;
+    final result = await showCardColorDialog(
+      context,
+      app,
+      initialFore: first.cardForeColor,
+      initialBack: first.cardBackColor,
+      bulkCount: targets.length,
+    );
+    if (result == null) return;
+    await app.setProjectsCardColor(
+      targets,
+      fore: result.applyFore ? result.fore : null,
+      back: result.applyBack ? result.back : null,
+    );
+    _snack(L.t('bulk_color_applied', [targets.length]));
+  }
+
+  Future<void> _editCardColor(ManidocProject project) async {
+    final result = await showCardColorDialog(
+      context,
+      app,
+      initialFore: project.cardForeColor,
+      initialBack: project.cardBackColor,
+    );
+    if (result == null) return;
+    await app.setProjectsCardColor([project],
+        fore: result.fore, back: result.back);
+  }
+
   Future<void> _editTag(ManidocProject project) async {
     final tag = await showTagDialog(context, app, project.tag);
     if (tag != null) await app.setProjectTag(project, tag);
@@ -442,11 +588,84 @@ class _StartScreenState extends State<StartScreen> {
   int _countNodes(List<ManidocNode> nodes) => nodes.fold(
       0, (sum, node) => sum + 1 + _countNodes(node.children));
 
+  // 一括操作のショートカット。Ctrl(macはCmd)+A ですべて選択、Shiftを足すと選択解除。
+  static const _selectionShortcuts = <ShortcutActivator, Intent>{
+    SingleActivator(LogicalKeyboardKey.keyA, control: true):
+        _SelectAllProjectsIntent(),
+    SingleActivator(LogicalKeyboardKey.keyA, meta: true):
+        _SelectAllProjectsIntent(),
+    SingleActivator(LogicalKeyboardKey.keyA, control: true, shift: true):
+        _ClearProjectSelectionIntent(),
+    SingleActivator(LogicalKeyboardKey.keyA, meta: true, shift: true):
+        _ClearProjectSelectionIntent(),
+  };
+
+  /// ショートカットを受け付けてよい状況か。
+  /// 検索欄などテキスト入力中はfalseにして、入力欄側のCtrl+A(文字の全選択)を殺さない
+  /// (Actionが無効なら Shortcuts はキーを消費せず、そのまま上へ流れる)。
+  bool get _canUseSelectionShortcut {
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    if (focusContext != null &&
+        (focusContext.widget is EditableText ||
+            focusContext.findAncestorWidgetOfExactType<EditableText>() !=
+                null)) {
+      return false;
+    }
+    return app.workspace != null &&
+        app.projects.isNotEmpty &&
+        !app.settings.immersiveProjectView;
+  }
+
+  /// Ctrl+A: 選択モードがOFFなら自動でONにしてから全選択する。
+  void _shortcutSelectAll() {
+    if (app.workspace == null ||
+        app.projects.isEmpty ||
+        app.settings.immersiveProjectView) {
+      return;
+    }
+    setState(() {
+      _selectionMode = true;
+      _selectedIds
+        ..clear()
+        ..addAll(app.projects.map((p) => p.id));
+    });
+  }
+
+  void _shortcutClearSelection() {
+    if (!_selectionMode || _selectedIds.isEmpty) return;
+    setState(_selectedIds.clear);
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: app,
-      builder: (context, _) => Scaffold(
+      builder: (context, _) => Shortcuts(
+        shortcuts: _selectionShortcuts,
+        child: Actions(
+          actions: {
+            _SelectAllProjectsIntent:
+                _ConditionalCallbackAction<_SelectAllProjectsIntent>(
+              onInvoke: (_) {
+                _shortcutSelectAll();
+                return null;
+              },
+              enabled: () => _canUseSelectionShortcut,
+            ),
+            _ClearProjectSelectionIntent:
+                _ConditionalCallbackAction<_ClearProjectSelectionIntent>(
+              onInvoke: (_) {
+                _shortcutClearSelection();
+                return null;
+              },
+              enabled: () =>
+                  _canUseSelectionShortcut && _selectionMode && _selectedIds.isNotEmpty,
+            ),
+          },
+          child: Focus(
+            focusNode: _shortcutFocus,
+            autofocus: true,
+            child: Scaffold(
         body: Column(
           children: [
             _buildTopBar(context),
@@ -459,7 +678,12 @@ class _StartScreenState extends State<StartScreen> {
                       onOpenNode: (p, nodeId) =>
                           _openProject(p, nodeId: nodeId),
                     )
-                  : SingleChildScrollView(
+                  // 余白クリックで検索欄のフォーカスを外す。
+                  // (入力欄にフォーカスが残っているとCtrl+Aが入力欄側の全選択になるため)
+                  : GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: _shortcutFocus.requestFocus,
+                      child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 32),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -476,14 +700,19 @@ class _StartScreenState extends State<StartScreen> {
                       const SizedBox(height: 32),
                       _buildManagementRow(context),
                       const SizedBox(height: 12),
+                      if (_selectionMode) _buildSelectionBar(context),
                       _buildProjectGrid(context),
                     ],
                     const SizedBox(height: 32),
                   ],
                 ),
               ),
+                    ),
             ),
           ],
+        ),
+            ),
+          ),
         ),
       ),
     );
@@ -779,6 +1008,19 @@ class _StartScreenState extends State<StartScreen> {
         const Spacer(),
         if (app.workspace != null) ...[
           TextButton.icon(
+            onPressed: app.projects.isEmpty
+                ? null
+                : () => setState(() {
+                      _selectionMode = !_selectionMode;
+                      if (!_selectionMode) _selectedIds.clear();
+                    }),
+            icon: Icon(
+                _selectionMode ? Icons.check_box : Icons.check_box_outlined,
+                size: 18),
+            label:
+                Text(_selectionMode ? L.t('select_exit') : L.t('select_mode')),
+          ),
+          TextButton.icon(
             onPressed: () => showTagManagerDialog(context, app),
             icon: const Icon(Icons.sell_outlined, size: 18),
             label: Text(L.t('tag_manager')),
@@ -795,6 +1037,66 @@ class _StartScreenState extends State<StartScreen> {
           ),
         ],
       ],
+    );
+  }
+
+  /// 選択モード中の操作バー(件数/全選択/解除/色設定/削除)
+  Widget _buildSelectionBar(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final count = _selectedIds.length;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Text(L.t('selected_count', [count]),
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(width: 12),
+          Tooltip(
+            message: L.t('select_all_shortcut'),
+            child: TextButton.icon(
+              icon: const Icon(Icons.select_all, size: 18),
+              label: Text(L.t('select_all')),
+              onPressed: () => setState(() {
+                _selectedIds
+                  ..clear()
+                  ..addAll(app.projects.map((p) => p.id));
+              }),
+            ),
+          ),
+          Tooltip(
+            message: L.t('select_clear_shortcut'),
+            child: TextButton.icon(
+              icon: const Icon(Icons.deselect, size: 18),
+              label: Text(L.t('select_clear')),
+              onPressed: count == 0
+                  ? null
+                  : () => setState(() => _selectedIds.clear()),
+            ),
+          ),
+          const Spacer(),
+          TextButton.icon(
+            icon: const Icon(Icons.palette_outlined, size: 18),
+            label: Text(L.t('bulk_color')),
+            onPressed: count == 0 ? null : _bulkColor,
+          ),
+          TextButton.icon(
+            icon: const Icon(Icons.delete_outline, size: 18),
+            label: Text(L.t('bulk_delete')),
+            style: TextButton.styleFrom(foregroundColor: scheme.error),
+            onPressed: count == 0 ? null : _bulkDelete,
+          ),
+          IconButton(
+            tooltip: L.t('select_exit'),
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: _exitSelection,
+          ),
+        ],
+      ),
     );
   }
 
@@ -885,12 +1187,32 @@ class _StartScreenState extends State<StartScreen> {
   Widget _buildProjectCard(BuildContext context, ManidocProject project) {
     final updated =
         project.lastModifiedAt.toLocal().toString().substring(0, 16);
+    final scheme = Theme.of(context).colorScheme;
+    // 背景色だけ設定されても読めるよう、文字色が未設定なら背景から自動で決める
+    final backColor = colorFromHex(project.cardBackColor);
+    final foreColor = colorFromHex(project.cardForeColor) ??
+        (backColor != null
+            ? contrastForegroundFor(backColor)
+            : scheme.onSurface);
+    // 薄い文字は半透明ではなく背景に畳んだ実色にする(内蔵GPUのVRAM対策)
+    final metaColor =
+        blendOpaque(foreColor, backColor ?? scheme.surfaceContainerLow, 0.7);
+    final selected = _selectedIds.contains(project.id);
     return SizedBox(
       width: 300,
       child: Card(
+        color: backColor,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: selected
+              ? BorderSide(color: scheme.primary, width: 2)
+              : BorderSide.none,
+        ),
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: () => _openProject(project),
+          onTap: _selectionMode
+              ? () => _toggleSelect(project)
+              : () => _openProject(project),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
@@ -898,6 +1220,16 @@ class _StartScreenState extends State<StartScreen> {
               children: [
                 Row(
                   children: [
+                    if (_selectionMode)
+                      SizedBox(
+                        width: 30,
+                        height: 24,
+                        child: Checkbox(
+                          value: selected,
+                          visualDensity: VisualDensity.compact,
+                          onChanged: (_) => _toggleSelect(project),
+                        ),
+                      ),
                     if (project.tag.isNotEmpty)
                       _buildTagChip(context, project.tag)
                     else
@@ -905,7 +1237,7 @@ class _StartScreenState extends State<StartScreen> {
                     const Spacer(),
                     PopupMenuButton<String>(
                       tooltip: L.t('operations'),
-                      icon: const Icon(Icons.more_horiz, size: 20),
+                      icon: Icon(Icons.more_horiz, size: 20, color: foreColor),
                       onSelected: (value) {
                         switch (value) {
                           case 'rename':
@@ -916,6 +1248,8 @@ class _StartScreenState extends State<StartScreen> {
                             app.moveProject(project, 1);
                           case 'tag':
                             _editTag(project);
+                          case 'color':
+                            _editCardColor(project);
                           case 'html':
                             _exportHtml(project);
                           case 'md':
@@ -951,6 +1285,9 @@ class _StartScreenState extends State<StartScreen> {
                               value: 'down', child: Text(L.t('menu_down'))),
                           PopupMenuItem(
                               value: 'tag', child: Text(L.t('menu_tag'))),
+                          PopupMenuItem(
+                              value: 'color',
+                              child: Text(L.t('menu_card_color'))),
                           const PopupMenuDivider(),
                           PopupMenuItem(
                               value: 'html', child: Text(L.t('menu_html'))),
@@ -980,15 +1317,20 @@ class _StartScreenState extends State<StartScreen> {
                 const SizedBox(height: 4),
                 Text(
                   project.name,
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: foreColor),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 8),
                 Text(
                   '${L.t('updated')}: $updated　${L.t('items')}: ${_countNodes(project.rootNodes)}',
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: metaColor),
                 ),
               ],
             ),

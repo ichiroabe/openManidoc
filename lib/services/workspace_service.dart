@@ -28,6 +28,12 @@ class WorkspaceService {
   String get _settingsPath =>
       '$workspacePath${Platform.pathSeparator}workspace.settings.json';
 
+  /// タイル色のミラー(openManidoc専用ファイル)。
+  /// 本家Manidocはプロジェクトの未知フィールドを保存時に落とすため、色の控えをここに持ち、
+  /// 剥がされていたら読み込み時に補う。本家はこのファイルを読み書きしない。
+  String get cardColorsPath =>
+      '$workspacePath${Platform.pathSeparator}project.colors.json';
+
   /// workspace.settings.json の tags[] を読む
   Future<List<TagDefinition>> loadTags() async {
     final file = File(_settingsPath);
@@ -55,6 +61,60 @@ class WorkspaceService {
     }
     json['tags'] = tags.map((t) => t.toJson()).toList();
     await file.writeAsString(_encoder.convert(json));
+  }
+
+  /// ミラーを読む。{projectId: {'fore': '#rrggbb', 'back': '#rrggbb'}}
+  Future<Map<String, Map<String, String>>> loadCardColors() async {
+    final file = File(cardColorsPath);
+    if (!await file.exists()) return {};
+    try {
+      final json = jsonDecode(await file.readAsString());
+      if (json is! Map<String, dynamic>) return {};
+      final result = <String, Map<String, String>>{};
+      json.forEach((id, value) {
+        if (value is Map<String, dynamic>) {
+          result[id] = {
+            'fore': value['fore'] as String? ?? '',
+            'back': value['back'] as String? ?? '',
+          };
+        }
+      });
+      return result;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// 指定プロジェクトの色をミラーへ反映する(両方空ならエントリごと削除)。
+  Future<void> updateCardColors(Iterable<ManidocProject> projects) async {
+    final mirror = await loadCardColors();
+    for (final p in projects) {
+      if (p.cardForeColor.isEmpty && p.cardBackColor.isEmpty) {
+        mirror.remove(p.id);
+      } else {
+        mirror[p.id] = {'fore': p.cardForeColor, 'back': p.cardBackColor};
+      }
+    }
+    await _writeCardColors(mirror);
+  }
+
+  /// 削除されたプロジェクトのエントリをミラーから消す。
+  Future<void> removeCardColors(Iterable<String> projectIds) async {
+    final mirror = await loadCardColors();
+    var changed = false;
+    for (final id in projectIds) {
+      if (mirror.remove(id) != null) changed = true;
+    }
+    if (changed) await _writeCardColors(mirror);
+  }
+
+  Future<void> _writeCardColors(Map<String, Map<String, String>> mirror) async {
+    final file = File(cardColorsPath);
+    if (mirror.isEmpty) {
+      if (await file.exists()) await file.delete();
+      return;
+    }
+    await file.writeAsString(_encoder.convert(mirror));
   }
 
   /// テーマCSSは {workspace}/themes/*.css に置く
@@ -118,12 +178,29 @@ class WorkspaceService {
         // プロジェクト以外のJSONや破損ファイルは無視
       }
     }
+    // 本家Manidocで保存されて色フィールドが剥がれていたらミラーから補う。
+    // ディスクへは書き戻さない(lastModifiedAtを動かさないため)。次回の保存で自然に復活する。
+    final mirror = await loadCardColors();
+    if (mirror.isNotEmpty) {
+      for (final project in projects) {
+        final saved = mirror[project.id];
+        if (saved == null) continue;
+        if (project.cardForeColor.isEmpty) {
+          project.cardForeColor = saved['fore'] ?? '';
+        }
+        if (project.cardBackColor.isEmpty) {
+          project.cardBackColor = saved['back'] ?? '';
+        }
+      }
+    }
     projects.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     return projects;
   }
 
-  Future<void> saveProject(ManidocProject project) async {
-    project.lastModifiedAt = DateTime.now();
+  /// [touch] が false のときは lastModifiedAt を更新しない。
+  /// タイル色の変更など、本文を書き換えない操作で更新日時が動かないようにするため。
+  Future<void> saveProject(ManidocProject project, {bool touch = true}) async {
+    if (touch) project.lastModifiedAt = DateTime.now();
     final file = File(projectFilePath(project.id));
     await file.parent.create(recursive: true);
     await file.writeAsString(_encoder.convert(project.toJson()));
