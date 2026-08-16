@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -5,6 +7,7 @@ import 'l10n/strings.dart';
 import 'models/manidoc_project.dart';
 import 'models/tag_definition.dart';
 import 'services/ai_service.dart';
+import 'services/backup_service.dart';
 import 'services/settings_service.dart';
 import 'services/workspace_service.dart';
 
@@ -187,6 +190,50 @@ class AppState extends ChangeNotifier {
 
   Future<void> deleteProject(ManidocProject project) async {
     await workspace!.deleteProject(project);
+    await workspace!.removeCardColors([project.id]);
+    await refreshProjects();
+  }
+
+  /// 一括削除。削除は取り消せずゴミ箱にも入らないので、1件ずつZIPバックアップを
+  /// 取ってから消す。バックアップに失敗したプロジェクトは消さずに失敗として返す。
+  /// 途中で失敗しても残りの処理は続ける(Driveのロック等で全体が止まらないように)。
+  Future<({List<String> deleted, Map<String, String> failed, String? backupDir})>
+      deleteProjects(List<ManidocProject> targets) async {
+    final ws = workspace!;
+    final backup = BackupService(ws);
+    final deleted = <String>[];
+    final deletedIds = <String>[];
+    final failed = <String, String>{};
+    String? backupDir;
+    for (final project in targets) {
+      try {
+        final zipPath = await backup.backupProject(project);
+        backupDir = File(zipPath).parent.path;
+        await ws.deleteProject(project);
+        deleted.add(project.name);
+        deletedIds.add(project.id);
+      } catch (e) {
+        failed[project.name] = '$e';
+      }
+    }
+    if (deletedIds.isNotEmpty) await ws.removeCardColors(deletedIds);
+    await refreshProjects();
+    return (deleted: deleted, failed: failed, backupDir: backupDir);
+  }
+
+  /// タイル色をまとめて設定する。null を渡した側は変更しない(一括設定の
+  /// 「背景色だけ適用」に対応)。空文字を渡すと既定色へ戻す。
+  /// 色は本文ではないので lastModifiedAt は動かさない。
+  Future<void> setProjectsCardColor(List<ManidocProject> targets,
+      {String? fore, String? back}) async {
+    if (targets.isEmpty || (fore == null && back == null)) return;
+    final ws = workspace!;
+    for (final project in targets) {
+      if (fore != null) project.cardForeColor = fore;
+      if (back != null) project.cardBackColor = back;
+      await ws.saveProject(project, touch: false);
+    }
+    await ws.updateCardColors(targets);
     await refreshProjects();
   }
 
