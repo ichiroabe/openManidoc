@@ -288,6 +288,19 @@ class AiService {
         },
       );
 
+  /// APIのエラー応答から人が読める理由を取り出す。error.message があればそれを、
+  /// なければ本文をそのまま(長すぎる場合は切り詰めて)返す。
+  static String geminiErrorMessage(String body) {
+    try {
+      final message = jsonDecode(body)?['error']?['message'];
+      if (message is String && message.trim().isNotEmpty) return message.trim();
+    } catch (_) {
+      // JSONでないエラーページ等はそのまま見せる
+    }
+    final trimmed = body.trim();
+    return trimmed.length > 500 ? '${trimmed.substring(0, 500)}…' : trimmed;
+  }
+
   /// Gemini の ListModels。APIキーで実際に使えるモデルを取得し、
   /// テキスト生成用と画像生成用に振り分けて返す。
   static Future<({List<String> text, List<String> image})> listGeminiModels(
