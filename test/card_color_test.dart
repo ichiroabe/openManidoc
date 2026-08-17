@@ -100,7 +100,12 @@ void main() {
     await ws.updateCardColors(loaded);
     expect(File(ws.cardColorsPath).existsSync(), false);
 
-    await tmp.delete(recursive: true);
+    try {
+      await tmp.delete(recursive: true);
+    } on FileSystemException {
+      // Windowsは書き込み直後のファイルを掴んでいることがあり、後始末の削除が
+      // PathAccessException になる。検証は済んでいるので後始末の失敗は無視する。
+    }
   });
 
   test('一括色設定は更新日時を動かさない', () async {
@@ -120,7 +125,12 @@ void main() {
       expect(p.lastModifiedAt, older, reason: '色変更は本文の更新ではない');
     }
 
-    await tmp.delete(recursive: true);
+    try {
+      await tmp.delete(recursive: true);
+    } on FileSystemException {
+      // Windowsは書き込み直後のファイルを掴んでいることがあり、後始末の削除が
+      // PathAccessException になる。検証は済んでいるので後始末の失敗は無視する。
+    }
   });
 
   test('一括削除はバックアップZIPを作ってから消し、失敗は集計される', () async {
@@ -151,6 +161,11 @@ void main() {
     expect(await ws.loadCardColors(), isEmpty);
     expect(app.projects.map((p) => p.name), ['残す']);
 
-    await tmp.delete(recursive: true);
+    try {
+      await tmp.delete(recursive: true);
+    } on FileSystemException {
+      // Windowsは書き込み直後のファイルを掴んでいることがあり、後始末の削除が
+      // PathAccessException になる。検証は済んでいるので後始末の失敗は無視する。
+    }
   });
 }
