@@ -147,12 +147,21 @@ class HtmlImport {
           case 'pre':
             buffer.writeln('```\n${child.text.trimRight()}\n```\n');
           case 'table':
+            var headerDone = false;
             for (final row in child.querySelectorAll('tr')) {
               final cells = row
                   .querySelectorAll('th,td')
-                  .map((c) => c.text.trim())
+                  .map((c) => _mdCell(c.text))
                   .toList();
+              if (cells.isEmpty) continue;
               buffer.writeln('| ${cells.join(' | ')} |');
+              // Markdownの表はヘッダー行の直後に区切り行(| --- |)が必須。
+              // これが無いと表として描画されずパイプが文字のまま表示される。
+              if (!headerDone) {
+                buffer.writeln(
+                    '| ${List.filled(cells.length, '---').join(' | ')} |');
+                headerDone = true;
+              }
             }
             buffer.writeln();
           case 'img':
@@ -175,6 +184,12 @@ class HtmlImport {
       project.rootNodes.add(ManidocNode(title: project.name));
     }
   }
+
+  /// テーブルセルをMarkdownの表に安全に収める。
+  /// 改行・連続空白は1つの空白へ潰し、区切り文字 `|` はエスケープする
+  /// (どちらも表のレイアウトを壊すため)。
+  static String _mdCell(String s) =>
+      s.trim().replaceAll(RegExp(r'\s+'), ' ').replaceAll('|', r'\|');
 
   static Future<void> _images(
       dom.Element element,
