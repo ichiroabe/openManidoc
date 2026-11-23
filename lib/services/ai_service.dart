@@ -351,8 +351,8 @@ class AiService {
     }
 
     // レスポンスに「画像を出力できる」という印が無いため名前で判別するしかない。
-    // 命名が変わったらここが外れる。
-    bool isImage(String n) => n.contains('image');
+    // 命名が変わったらここが外れる。nano-banana系は 'image' を含まないので別途拾う。
+    bool isImage(String n) => n.contains('image') || n.contains('banana');
     bool isTextChat(String n) =>
         !isImage(n) &&
         !n.contains('embedding') &&
@@ -603,7 +603,7 @@ class AiService {
     ].join(' / ');
     throw AiException('Geminiから画像データを取得できませんでした。'
         '${detail.isEmpty ? '' : '\n$detail'}\n'
-        '画像生成対応モデル(例: gemini-2.5-flash-image)が'
+        '画像生成対応モデル(例: gemini-nano-banana-2.1)が'
         '「⚙ 設定」で選ばれているか確認してください。');
   }
 }

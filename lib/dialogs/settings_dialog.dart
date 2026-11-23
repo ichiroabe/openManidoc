@@ -27,10 +27,10 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
       TextEditingController(text: '${s.voicevoxSpeaker}');
 
   const geminiModels = [
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-    'gemini-1.5-flash',
-    'gemini-1.5-pro',
+    'gemini-4-hydrogen',
+    'gemini-3.8-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
     'custom'
   ];
   const openaiModels = [
@@ -57,7 +57,12 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
   var jpegQuality = s.exportJpegQuality.toDouble();
   var maxDimension = s.exportMaxDimension;
 
-  const geminiImageModels = ['gemini-2.5-flash-image', 'custom'];
+  const geminiImageModels = [
+    'gemini-nano-banana-2.1',
+    'gemini-3-pro-image',
+    'gemini-3.1-flash-image',
+    'custom'
+  ];
 
   var selectedGeminiModel =
       geminiModels.contains(s.geminiModel) ? s.geminiModel : 'custom';
@@ -322,7 +327,7 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                       controller: geminiModelController,
                       decoration: InputDecoration(
                         labelText: L.t('gemini_model'),
-                        hintText: 'gemini-2.5-flash',
+                        hintText: 'gemini-4-hydrogen',
                         border: const OutlineInputBorder(),
                         isDense: true,
                       ),
@@ -363,7 +368,7 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
                       controller: geminiImageModelController,
                       decoration: InputDecoration(
                         labelText: L.t('gemini_image_model'),
-                        hintText: 'gemini-2.5-flash-image',
+                        hintText: 'gemini-nano-banana-2.1',
                         border: const OutlineInputBorder(),
                         isDense: true,
                       ),
@@ -918,10 +923,10 @@ Future<void> showSettingsDialog(BuildContext context, AppState app) async {
       ..aiProvider = provider
       ..geminiApiKey = geminiKeyController.text.trim()
       ..geminiModel = geminiModelController.text.trim().isEmpty
-          ? 'gemini-2.5-flash'
+          ? 'gemini-4-hydrogen'
           : geminiModelController.text.trim()
       ..geminiImageModel = geminiImageModelController.text.trim().isEmpty
-          ? 'gemini-2.5-flash-image'
+          ? 'gemini-nano-banana-2.1'
           : geminiImageModelController.text.trim()
       ..openaiApiKey = openaiKeyController.text.trim()
       ..openaiModel = openaiModelController.text.trim().isEmpty
